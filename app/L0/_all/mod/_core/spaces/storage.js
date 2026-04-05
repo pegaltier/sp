@@ -20,6 +20,15 @@ import {
   normalizeWidgetSize,
   sizeToToken
 } from "/mod/_core/spaces/widget-sdk-core.js";
+import {
+  getSpaceDisplayIcon,
+  getSpaceDisplayIconColor,
+  getSpaceDisplayTitle,
+  normalizeSpaceIcon,
+  normalizeSpaceIconColor,
+  normalizeSpaceSpecialInstructions,
+  normalizeSpaceTitle
+} from "/mod/_core/spaces/space-metadata.js";
 
 function ensureSpaceRuntime() {
   if (!globalThis.space || !globalThis.space.api || !globalThis.space.utils?.yaml) {
@@ -63,6 +72,23 @@ function formatTitleFromId(id) {
     .filter(Boolean)
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
+}
+
+function ensureTrailingSlash(value) {
+  const normalizedValue = String(value || "").trim();
+
+  if (!normalizedValue) {
+    return "";
+  }
+
+  return normalizedValue.endsWith("/") ? normalizedValue : `${normalizedValue}/`;
+}
+
+function getLastPathSegment(path) {
+  return String(path || "")
+    .split("/")
+    .filter(Boolean)
+    .pop() || "";
 }
 
 function uniqueList(values) {
@@ -131,7 +157,10 @@ function cloneWidgetRecord(widgetRecord) {
 function cloneSpaceRecord(spaceRecord) {
   return {
     ...spaceRecord,
+    icon: String(spaceRecord.icon || ""),
+    iconColor: String(spaceRecord.iconColor || ""),
     minimizedWidgetIds: [...spaceRecord.minimizedWidgetIds],
+    specialInstructions: String(spaceRecord.specialInstructions || ""),
     widgetIds: [...spaceRecord.widgetIds],
     widgetPositions: { ...spaceRecord.widgetPositions },
     widgetSizes: { ...spaceRecord.widgetSizes },
@@ -141,12 +170,52 @@ function cloneSpaceRecord(spaceRecord) {
   };
 }
 
-function formatSpaceListEntry(spaceRecord, widgetCount = spaceRecord.widgetIds.length) {
+function formatSpaceUpdatedAtLabel(value) {
+  const timestamp = Date.parse(String(value || ""));
+
+  if (!Number.isFinite(timestamp)) {
+    return "Unknown update time";
+  }
+
+  const formatter = new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    year: "2-digit"
+  });
+  const parts = formatter.formatToParts(new Date(timestamp));
+  const lookup = (type) => parts.find((part) => part.type === type)?.value || "";
+  const month = lookup("month");
+  const day = lookup("day");
+  const year = lookup("year");
+  const hour = lookup("hour");
+  const minute = lookup("minute");
+  const dayPeriod = lookup("dayPeriod");
+  const dateText = [month, day, year].filter(Boolean).join(" ");
+  const timeText = [hour && minute ? `${hour}:${minute}` : "", dayPeriod].filter(Boolean).join(" ");
+
+  return [dateText, timeText].filter(Boolean).join(" ");
+}
+
+function formatSpaceListEntry(spaceRecord, widgetCount = spaceRecord.widgetIds.length, widgetNames = []) {
+  const normalizedWidgetNames = uniqueList(
+    (Array.isArray(widgetNames) ? widgetNames : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  );
+
   return {
     ...spaceRecord,
-    updatedAtLabel: spaceRecord.updatedAt ? new Date(spaceRecord.updatedAt).toLocaleString() : "Unknown update time",
+    displayIcon: getSpaceDisplayIcon(spaceRecord),
+    displayIconColor: getSpaceDisplayIconColor(spaceRecord),
+    displayTitle: getSpaceDisplayTitle(spaceRecord),
+    updatedAtLabel: formatSpaceUpdatedAtLabel(spaceRecord.updatedAt),
+    hiddenWidgetCount: Math.max(0, normalizedWidgetNames.length - 4),
     widgetCount,
-    widgetCountLabel: `${widgetCount} ${widgetCount === 1 ? "widget" : "widgets"}`
+    widgetCountLabel: `${widgetCount} ${widgetCount === 1 ? "widget" : "widgets"}`,
+    widgetNames: normalizedWidgetNames,
+    widgetPreviewNames: normalizedWidgetNames.slice(0, 4)
   };
 }
 
@@ -173,12 +242,17 @@ function normalizeManifest(rawManifest, fallbackId = "") {
   return {
     createdAt: String(rawManifest?.created_at || rawManifest?.createdAt || now),
     dataPath: buildSpaceDataPath(id),
+    icon: normalizeSpaceIcon(rawManifest?.icon),
+    iconColor: normalizeSpaceIconColor(rawManifest?.icon_color ?? rawManifest?.iconColor),
     id,
     manifestPath: buildSpaceManifestPath(id),
     minimizedWidgetIds,
     path: buildSpaceRootPath(id),
     schema: String(rawManifest?.schema || SPACES_SCHEMA),
-    title: String(rawManifest?.title || formatTitleFromId(id) || "Untitled Space"),
+    specialInstructions: normalizeSpaceSpecialInstructions(
+      rawManifest?.special_instructions ?? rawManifest?.specialInstructions
+    ),
+    title: normalizeSpaceTitle(rawManifest?.title),
     updatedAt: String(rawManifest?.updated_at || rawManifest?.updatedAt || now),
     widgetIds,
     widgetPositions,
@@ -191,13 +265,32 @@ function normalizeManifest(rawManifest, fallbackId = "") {
 
 function serializeManifest(spaceRecord) {
   const runtime = ensureSpaceRuntime();
+  const normalizedIcon = normalizeSpaceIcon(spaceRecord.icon);
+  const normalizedIconColor = normalizeSpaceIconColor(spaceRecord.iconColor);
+  const normalizedTitle = normalizeSpaceTitle(spaceRecord.title);
+  const normalizedSpecialInstructions = normalizeSpaceSpecialInstructions(spaceRecord.specialInstructions);
   const yamlSource = {
     created_at: spaceRecord.createdAt,
     id: spaceRecord.id,
     schema: SPACES_SCHEMA,
-    title: spaceRecord.title,
     updated_at: spaceRecord.updatedAt
   };
+
+  if (normalizedTitle) {
+    yamlSource.title = normalizedTitle;
+  }
+
+  if (normalizedIcon) {
+    yamlSource.icon = normalizedIcon;
+  }
+
+  if (normalizedIconColor) {
+    yamlSource.icon_color = normalizedIconColor;
+  }
+
+  if (normalizedSpecialInstructions) {
+    yamlSource.special_instructions = normalizedSpecialInstructions;
+  }
 
   if (spaceRecord.widgetIds.length) {
     yamlSource.layout_order = [...spaceRecord.widgetIds];
@@ -442,9 +535,14 @@ async function writeManifestFile(spaceRecord) {
   normalizedRecord.minimizedWidgetIds = normalizeWidgetIdList(spaceRecord.minimizedWidgetIds).filter((widgetId) =>
     normalizedRecord.widgetIds.includes(widgetId)
   );
+  normalizedRecord.icon = normalizeSpaceIcon(spaceRecord?.icon ?? normalizedRecord.icon);
+  normalizedRecord.iconColor = normalizeSpaceIconColor(spaceRecord?.iconColor ?? normalizedRecord.iconColor);
+  normalizedRecord.specialInstructions = normalizeSpaceSpecialInstructions(
+    spaceRecord?.specialInstructions ?? normalizedRecord.specialInstructions
+  );
   normalizedRecord.updatedAt = String(spaceRecord?.updatedAt || normalizedRecord.updatedAt);
   normalizedRecord.createdAt = String(spaceRecord?.createdAt || normalizedRecord.createdAt);
-  normalizedRecord.title = String(spaceRecord?.title || normalizedRecord.title);
+  normalizedRecord.title = normalizeSpaceTitle(spaceRecord?.title ?? normalizedRecord.title);
 
   await runtime.api.fileWrite({
     content: serializeManifest(normalizedRecord),
@@ -784,19 +882,15 @@ export async function listSpaces() {
   }
 
   const manifestPaths = matchedPaths.filter((path) => /\/spaces\/[^/]+\/space\.yaml$/u.test(String(path || "")));
+  const widgetPaths = matchedPaths.filter((path) => /\/spaces\/[^/]+\/widgets\/[^/]+\.(?:yaml|js)$/u.test(String(path || "")));
 
   if (!manifestPaths.length) {
     return [];
   }
 
   const widgetCounts = {};
-  matchedPaths.forEach((path) => {
+  widgetPaths.forEach((path) => {
     const normalizedPath = String(path || "");
-
-    if (!/\/spaces\/[^/]+\/widgets\/[^/]+\.(?:yaml|js)$/u.test(normalizedPath)) {
-      return;
-    }
-
     const widgetSpaceId = normalizedSpaceIdFromWidgetPath(normalizedPath);
 
     if (!widgetSpaceId) {
@@ -813,14 +907,62 @@ export async function listSpaces() {
   const readResult = await runtime.api.fileRead({
     files: manifestPaths
   });
+  const widgetReadResult = widgetPaths.length
+    ? await runtime.api.fileRead({
+        files: widgetPaths
+      })
+    : { files: [] };
   const files = Array.isArray(readResult?.files) ? readResult.files : [];
+  const widgetFiles = Array.isArray(widgetReadResult?.files) ? widgetReadResult.files : [];
+  const widgetNamesBySpaceId = {};
+
+  widgetFiles.forEach((file) => {
+    const path = String(file?.path || "");
+    const spaceId = normalizedSpaceIdFromWidgetPath(path);
+    const widgetId = parseWidgetIdFromPath(path);
+
+    if (!spaceId || !widgetId) {
+      return;
+    }
+
+    if (!widgetNamesBySpaceId[spaceId]) {
+      widgetNamesBySpaceId[spaceId] = {};
+    }
+
+    let widgetName = "";
+
+    if (path.endsWith(SPACE_WIDGET_FILE_EXTENSION)) {
+      try {
+        const parsedWidget = runtime.utils.yaml.parse(String(file?.content || ""));
+        widgetName = String(parsedWidget?.name || parsedWidget?.title || "").trim();
+      } catch {
+        widgetName = "";
+      }
+    }
+
+    widgetNamesBySpaceId[spaceId][widgetId] = widgetName || formatTitleFromId(widgetId);
+  });
 
   return files
     .map((file) => {
       const fallbackId = parseManifestSpaceId(file?.path);
       const parsedContent = runtime.utils.yaml.parse(String(file?.content || ""));
       const normalizedSpace = normalizeManifest(parsedContent, fallbackId);
-      return formatSpaceListEntry(normalizedSpace, widgetCounts[normalizedSpace.id]?.size || normalizedSpace.widgetIds.length);
+      const widgetNameMap = widgetNamesBySpaceId[normalizedSpace.id] || {};
+      const orderedWidgetNames = uniqueList([
+        ...normalizedSpace.widgetIds
+          .map((widgetId) => widgetNameMap[widgetId] || formatTitleFromId(widgetId))
+          .filter(Boolean),
+        ...Object.entries(widgetNameMap)
+          .filter(([widgetId]) => !normalizedSpace.widgetIds.includes(widgetId))
+          .map(([, widgetName]) => widgetName)
+      ]);
+
+      return formatSpaceListEntry(
+        normalizedSpace,
+        widgetCounts[normalizedSpace.id]?.size || normalizedSpace.widgetIds.length,
+        orderedWidgetNames
+      );
     })
     .sort((left, right) => {
       const leftTime = Date.parse(left.updatedAt || left.createdAt || "");
@@ -861,14 +1003,21 @@ export async function readSpace(spaceId) {
 
 export async function createSpace(options = {}) {
   const runtime = ensureSpaceRuntime();
-  const title = String(options.title || "Untitled Space").trim() || "Untitled Space";
+  const icon = normalizeSpaceIcon(options.icon);
+  const iconColor = normalizeSpaceIconColor(options.iconColor);
+  const title = normalizeSpaceTitle(options.title);
   const id = await createUniqueSpaceId(options.id || title);
   const timestamp = new Date().toISOString();
   const manifest = normalizeManifest(
     {
       created_at: timestamp,
+      icon,
+      icon_color: iconColor,
       id,
       schema: SPACES_SCHEMA,
+      special_instructions: normalizeSpaceSpecialInstructions(
+        options.specialInstructions ?? options.instructions
+      ),
       title,
       updated_at: timestamp
     },
@@ -890,6 +1039,95 @@ export async function createSpace(options = {}) {
   });
 
   return manifest;
+}
+
+export async function installExampleSpace(options = {}) {
+  const runtime = ensureSpaceRuntime();
+  const sourcePath = ensureTrailingSlash(options.sourcePath ?? options.fromPath);
+
+  if (!sourcePath) {
+    throw new Error("A sourcePath is required to install an example space.");
+  }
+
+  const sourceManifestResult = await runtime.api.fileRead(`${sourcePath}${SPACE_MANIFEST_FILE}`);
+  const sourceManifest = normalizeManifest(
+    runtime.utils.yaml.parse(String(sourceManifestResult?.content || "")),
+    getLastPathSegment(sourcePath)
+  );
+  const title =
+    options.title !== undefined
+      ? normalizeSpaceTitle(options.title)
+      : normalizeSpaceTitle(sourceManifest.title);
+  const icon =
+    options.icon !== undefined
+      ? normalizeSpaceIcon(options.icon)
+      : normalizeSpaceIcon(sourceManifest.icon);
+  const iconColor =
+    options.iconColor !== undefined
+      ? normalizeSpaceIconColor(options.iconColor)
+      : normalizeSpaceIconColor(sourceManifest.iconColor);
+  const id = await createUniqueSpaceId(options.id || title || sourceManifest.id);
+  const timestamp = new Date().toISOString();
+
+  await runtime.api.fileWrite(SPACES_ROOT_PATH);
+  await runtime.api.fileCopy([
+    {
+      fromPath: sourcePath,
+      toPath: buildSpaceRootPath(id)
+    }
+  ]);
+  await writeManifestFile({
+    ...sourceManifest,
+    createdAt: timestamp,
+    icon,
+    iconColor,
+    id,
+    specialInstructions: normalizeSpaceSpecialInstructions(
+      options.specialInstructions ?? options.instructions ?? sourceManifest.specialInstructions
+    ),
+    title,
+    updatedAt: timestamp
+  });
+
+  return readSpace(id);
+}
+
+export async function duplicateSpace(spaceIdOrOptions = {}) {
+  const runtime = ensureSpaceRuntime();
+  const requestedSpaceId =
+    typeof spaceIdOrOptions === "string"
+      ? spaceIdOrOptions
+      : spaceIdOrOptions && typeof spaceIdOrOptions === "object"
+        ? spaceIdOrOptions.spaceId ?? spaceIdOrOptions.id
+        : "";
+  const sourceSpaceId = normalizeOptionalSpaceId(requestedSpaceId);
+
+  if (!sourceSpaceId) {
+    throw new Error("A target spaceId is required to duplicate a space.");
+  }
+
+  const sourceManifest = await readManifestFile(sourceSpaceId);
+  const nextId = await createUniqueSpaceId(spaceIdOrOptions?.newId || `${sourceSpaceId}-copy`);
+  const timestamp = new Date().toISOString();
+
+  await runtime.api.fileWrite(SPACES_ROOT_PATH);
+  await runtime.api.fileCopy({
+    fromPath: buildSpaceRootPath(sourceSpaceId),
+    toPath: buildSpaceRootPath(nextId)
+  });
+  await writeManifestFile({
+    ...sourceManifest,
+    createdAt: timestamp,
+    id: nextId,
+    manifestPath: buildSpaceManifestPath(nextId),
+    path: buildSpaceRootPath(nextId),
+    updatedAt: timestamp,
+    widgetsPath: buildSpaceWidgetsPath(nextId),
+    dataPath: buildSpaceDataPath(nextId),
+    assetsPath: buildSpaceAssetsPath(nextId)
+  });
+
+  return readSpace(nextId);
 }
 
 export async function removeSpace(spaceIdOrOptions = {}) {
@@ -920,7 +1158,21 @@ export async function saveSpaceMeta(options = {}) {
   const nextSpace = cloneSpaceRecord(currentSpace);
 
   if (options.title !== undefined) {
-    nextSpace.title = String(options.title || "").trim() || currentSpace.title;
+    nextSpace.title = normalizeSpaceTitle(options.title);
+  }
+
+  if (options.icon !== undefined) {
+    nextSpace.icon = normalizeSpaceIcon(options.icon);
+  }
+
+  if (options.iconColor !== undefined) {
+    nextSpace.iconColor = normalizeSpaceIconColor(options.iconColor);
+  }
+
+  if (options.specialInstructions !== undefined || options.instructions !== undefined) {
+    nextSpace.specialInstructions = normalizeSpaceSpecialInstructions(
+      options.specialInstructions ?? options.instructions
+    );
   }
 
   nextSpace.updatedAt = new Date().toISOString();
@@ -991,6 +1243,10 @@ export async function upsertWidget(options = {}) {
 
   if (!hasExistingWidget) {
     nextSpace.widgetIds.push(widgetId);
+  }
+
+  if (!hasExistingWidget && currentSpace.widgetIds.length === 0 && !normalizeSpaceTitle(currentSpace.title)) {
+    nextSpace.title = normalizeSpaceTitle(widgetRecord.name);
   }
 
   nextSpace.widgetPositions = pickWidgetMap(nextSpace.widgetPositions, nextSpace.widgetIds);

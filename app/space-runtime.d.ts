@@ -75,6 +75,17 @@ type SpaceFileDeleteBatchOptions = {
   paths: SpaceFileDeleteInput[];
 };
 
+type SpaceFileTransferInput =
+  | string
+  | {
+      fromPath: string;
+      toPath: string;
+    };
+
+type SpaceFileTransferBatchOptions = {
+  entries: SpaceFileTransferInput[];
+};
+
 type SpaceHealthResult = {
   ok: boolean;
   name: string;
@@ -117,6 +128,10 @@ type SpaceUserSelfInfo = {
 
 type SpaceApi = {
   call<T = unknown>(endpointName: string, callOptions?: SpaceApiCallOptions): Promise<T>;
+  fileCopy(path: string, toPath: string): Promise<SpaceFileApiResult>;
+  fileCopy(entry: SpaceFileTransferInput): Promise<SpaceFileApiResult>;
+  fileCopy(entries: SpaceFileTransferInput[]): Promise<SpaceFileBatchApiResult>;
+  fileCopy(options: SpaceFileTransferBatchOptions): Promise<SpaceFileBatchApiResult>;
   fileDelete(path: string): Promise<SpaceFileApiResult>;
   fileDelete(path: SpaceFileDeleteInput): Promise<SpaceFileApiResult>;
   fileDelete(paths: SpaceFileDeleteInput[]): Promise<SpacePathBatchApiResult>;
@@ -220,8 +235,11 @@ type SpaceWidgetRemovalResult = {
 type SpaceSpaceRecord = {
   createdAt: string;
   id: string;
+  icon: string;
+  iconColor: string;
   minimizedWidgetIds: string[];
   path: string;
+  specialInstructions: string;
   title: string;
   updatedAt: string;
   widgetIds: string[];
@@ -230,11 +248,27 @@ type SpaceSpaceRecord = {
   widgetTitles: Record<string, string>;
 };
 
+type SpaceSpaceListEntry = SpaceSpaceRecord & {
+  displayIcon: string;
+  displayIconColor: string;
+  displayTitle: string;
+  hiddenWidgetCount: number;
+  updatedAtLabel: string;
+  widgetCount: number;
+  widgetCountLabel: string;
+  widgetNames: string[];
+  widgetPreviewNames: string[];
+};
+
 type SpaceSpacesNamespace = {
   createSpace(options?: {
     id?: string;
+    icon?: string;
+    iconColor?: string;
+    instructions?: string;
     open?: boolean;
     replace?: boolean;
+    specialInstructions?: string;
     title?: string;
   }): Promise<SpaceSpaceRecord>;
   createWidgetSource(options?: {
@@ -243,8 +277,21 @@ type SpaceSpacesNamespace = {
     title?: string;
   }): string;
   defineWidget(definition: any): any;
+  duplicateSpace(spaceIdOrOptions?: string | { id?: string; newId?: string; spaceId?: string }): Promise<SpaceSpaceRecord>;
   getCurrentSpace(): SpaceSpaceRecord | null;
-  listSpaces(): Promise<Array<SpaceSpaceRecord & { updatedAtLabel: string; widgetCount: number; widgetCountLabel: string }>>;
+  installExampleSpace(options?: {
+    fromPath?: string;
+    id?: string;
+    icon?: string;
+    iconColor?: string;
+    instructions?: string;
+    open?: boolean;
+    replace?: boolean;
+    sourcePath?: string;
+    specialInstructions?: string;
+    title?: string;
+  }): Promise<SpaceSpaceRecord>;
+  listSpaces(): Promise<SpaceSpaceListEntry[]>;
   openSpace(spaceId: string, options?: { replace?: boolean }): Promise<void>;
   readSpace(spaceId: string): Promise<SpaceSpaceRecord>;
   rearrangeWidgets(options: { spaceId?: string; widgetLayouts?: SpaceWidgetLayoutInput[]; widgets: SpaceWidgetLayoutInput[] }): Promise<SpaceSpaceRecord>;
@@ -261,7 +308,14 @@ type SpaceSpacesNamespace = {
     widgetPositions?: Record<string, Partial<SpaceWidgetPosition>>;
     widgetSizes?: Record<string, SpaceWidgetSize>;
   }): Promise<SpaceSpaceRecord>;
-  saveSpaceMeta(options: { id: string; title?: string }): Promise<SpaceSpaceRecord>;
+  saveSpaceMeta(options: {
+    id: string;
+    icon?: string;
+    iconColor?: string;
+    instructions?: string;
+    specialInstructions?: string;
+    title?: string;
+  }): Promise<SpaceSpaceRecord>;
   sizeToToken(size: SpaceWidgetSize): string;
   toggleWidgets(options: { spaceId?: string; widgetIds: string[] }): Promise<SpaceSpaceRecord>;
   upsertWidget(options: {

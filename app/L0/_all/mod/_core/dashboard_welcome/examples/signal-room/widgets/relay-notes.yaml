@@ -1,0 +1,15 @@
+schema: space-widget/v1
+id: relay-notes
+name: Relay Notes
+cols: 6
+rows: 4
+renderer: |
+  async (parent, space) => {
+    await space.utils.markdown.render([
+      "### Next moves",
+      "",
+      "- Sweep the east channel before midnight.",
+      "- Replace the cold relay coil on dock three.",
+      "- Recheck the beacon once the pulse settles."
+    ].join("\n"), parent);
+  }

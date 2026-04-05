@@ -55,6 +55,7 @@ Current rules:
 - these endpoints delegate to `server/lib/customware/file_access.js`
 - they operate on app-rooted paths and supported endpoints also accept `~` or `~/...`
 - batch operations validate all targets before any mutation begins
+- single-file or single-folder copy and move requests must keep working when request plumbing omits `entries`; only real batch calls should forward an `entries` array to the shared helper
 - endpoint-specific validation should stay thin and reuse the shared helper contract
 - `folder_download` supports `HEAD` for permission-only validation and `GET` or `POST` for the actual streamed ZIP response
 - `folder_download` validates readable folder paths through the shared file-access permission model, creates a ZIP archive in `server/tmp/`, and returns a streamed attachment response without buffering the archive in memory

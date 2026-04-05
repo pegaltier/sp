@@ -1,0 +1,25 @@
+schema: space-widget/v1
+id: palette-shelf
+name: Palette Shelf
+cols: 4
+rows: 3
+renderer: |
+  (parent) => {
+    parent.innerHTML = `
+      <div style="display:grid; gap:0.75rem;">
+        <div style="font-size:0.76rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--color-text-tertiary);">Palette</div>
+        <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0.55rem;">
+          ${[
+            ["Mist", "#d4ecff"],
+            ["Mint", "#79edd8"],
+            ["Ink", "#1b2a44"],
+            ["Steel", "#5e708d"]
+          ].map(([label, color]) => `
+            <div style="display:grid; gap:0.35rem;">
+              <div style="height:3rem; border-radius:0.9rem; background:${color};"></div>
+              <div style="font-size:0.8rem; color:var(--color-text-secondary);">${label}</div>
+            </div>
+          `).join("")}
+        </div>
+      </div>`;
+  }

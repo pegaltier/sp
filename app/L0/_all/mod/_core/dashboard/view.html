@@ -4,19 +4,11 @@
   </head>
   <body>
     <section class="space-panel dashboard-view">
-      <div class="space-card space-info-card dashboard-hero">
-        <div>
-          <p class="page-eyebrow">Dashboard</p>
-          <h1>Start a new space.</h1>
+      <div class="dashboard-shell">
+        <div class="dashboard-stack">
+          <x-extension id="_core/dashboard/content_start"></x-extension>
+          <x-extension id="_core/dashboard/content_end"></x-extension>
         </div>
-        <p>
-          The main app now enters through the router shell. This dashboard stays small and hands navigation to
-          <code>$router</code>.
-        </p>
-        <div class="dashboard-hero-actions">
-          <span class="dashboard-route-note">Routes live under <code>/#/...</code>.</span>
-        </div>
-        <x-extension id="_core/dashboard/content_end"></x-extension>
       </div>
     </section>
   </body>

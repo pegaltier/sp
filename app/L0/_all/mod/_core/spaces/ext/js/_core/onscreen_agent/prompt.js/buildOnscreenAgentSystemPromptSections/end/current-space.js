@@ -23,7 +23,10 @@ function buildCurrentSpaceSnapshot(currentSpace) {
     : [];
 
   return {
+    icon: currentSpace?.icon || "",
+    iconColor: currentSpace?.iconColor || "",
     id: currentSpace?.id || "",
+    specialInstructions: currentSpace?.specialInstructions || "",
     title: currentSpace?.title || "",
     updatedAt: currentSpace?.updatedAt || "",
     widgetCount: widgets.length,
@@ -32,10 +35,22 @@ function buildCurrentSpaceSnapshot(currentSpace) {
 }
 
 function buildCurrentSpacePromptSection(snapshot) {
-  return [
+  const lines = [
     "## Current Open Space",
     "",
-    "The routed spaces canvas is currently open with this live widget state:",
+    "The routed spaces canvas is currently open with this live widget state:"
+  ];
+
+  if (snapshot.specialInstructions) {
+    lines.push(
+      "",
+      "Space-specific instructions for the Space Agent:",
+      snapshot.specialInstructions
+    );
+  }
+
+  lines.push(
+    "",
     "```json",
     JSON.stringify(snapshot, null, 2),
     "```",
@@ -52,7 +67,9 @@ function buildCurrentSpacePromptSection(snapshot) {
     "- `rearrangeWidgets(...)` uses the provided list order as the requested widget order; widgets you omit keep their relative order after the listed ones.",
     "- `toggleWidgets(...)` flips each listed widget between `expanded` and `minimized`.",
     "- Use widget ids from the snapshot above and `return await ...` when you need confirmation of a mutation."
-  ].join("\n");
+  );
+
+  return lines.join("\n");
 }
 
 export default function injectCurrentSpacePromptSection(hookContext) {

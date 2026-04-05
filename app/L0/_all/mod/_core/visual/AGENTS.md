@@ -15,6 +15,7 @@ Current sub-areas:
 - `index.css`: shared visual aggregator that imports the reusable layers
 - `canvas/`: authenticated shared backdrop CSS and JS runtimes
 - `chrome/`: topbar, popover, toast, and light chrome behavior
+- `icons/`: shared Material Symbols catalog helpers plus reusable icon-selection modal UI and runtime
 - `actions/`: shared button and attachment-chip styling
 - `forms/`: native dialog styling and helpers
 - `conversation/`: shared agent-thread rendering helpers
@@ -36,6 +37,14 @@ Chrome:
 - `chrome/popover.css` plus `chrome/popover.js` own the shared fixed-position dropdown or overflow-menu positioning contract
 - `chrome/toast.css` plus `chrome/toast.js` own the shared fixed-position toast stack and register `space.visual.showToast(message, options)`
 
+Icons:
+
+- `icons/material-symbols.txt` plus `icons/material-symbols.js` own the shipped Material Symbols ligature catalog and normalized icon-name or hex-color helpers shared by feature modules
+- `icons/icon-color-selector-modal.html`, `icons/icon-color-selector.css`, and `icons/icon-color-selector.js` own the reusable icon-selection modal and register `space.visual.openIconColorSelector(options)` once that module is imported
+- `space.visual.openIconColorSelector(options)` should open through the framework modal shell, await close, and resolve with either `null` for cancel or an `{ icon, color }` selection payload
+- the shared selector should support search, pagination, icon color, reset-to-default values supplied by the caller, and optional `allowNone` behavior without embedding feature-specific storage rules into the visual layer; its default page size is `100` icons unless a caller overrides `pageSize`
+- selector option cells should keep wrapped two-line icon labels legible without clipping descenders, use a larger direct glyph instead of a nested inner chip, keep prev/next as compact icon-only controls beside the pagination label, and leave a small visual gap above the footer action row
+
 Actions and forms:
 
 - `actions/buttons.css` owns shared `primary-button`, `secondary-button`, and `confirm-button` treatments plus composer-attachment chip styling
@@ -53,6 +62,7 @@ Conversation and surfaces:
 - keep the overall direction calm, dark, and readable rather than loud or novelty-driven
 - avoid putting feature logic, API calls, or store state into this module
 - when a primitive is only used by one feature, keep it local until reuse is real
+- keep reusable selection modals generic: the visual layer may own search, pagination, preview, and return-value flow, but feature-specific metadata semantics stay in the calling module
 - when changing the shared backdrop system, also review the mirrored public-shell copies in `server/pages/res/space-backdrop.css` and `server/pages/res/space-backdrop.js`
 
 ## Development Guidance

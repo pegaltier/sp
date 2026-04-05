@@ -18,6 +18,8 @@ import {
   buildSpaceWidgetFilePath,
   createSpace,
   createWidgetSource,
+  duplicateSpace as duplicateSpaceFromStorage,
+  installExampleSpace as installExampleSpaceFromStorage,
   listSpaces,
   normalizeRendererSource,
   normalizeSpaceId,
@@ -32,6 +34,18 @@ import {
   saveSpaceMeta,
   upsertWidget
 } from "/mod/_core/spaces/storage.js";
+import {
+  DEFAULT_SPACE_ICON,
+  DEFAULT_SPACE_ICON_COLOR,
+  getSpaceDisplayIcon,
+  getSpaceDisplayIconColor,
+  getSpaceDisplayTitle,
+  normalizeSpaceIcon,
+  normalizeSpaceIconColor,
+  normalizeSpaceSpecialInstructions,
+  normalizeSpaceTitle
+} from "/mod/_core/spaces/space-metadata.js";
+import { openIconColorSelector } from "/mod/_core/visual/icons/icon-color-selector.js";
 import {
   DEFAULT_WIDGET_SIZE,
   defineWidget,
@@ -51,6 +65,7 @@ const GRID_CAMERA_BUFFER_COLS = 2;
 const GRID_CAMERA_BUFFER_ROWS = 2;
 const GRID_EDGE_SCROLL_THRESHOLD = 72;
 const GRID_EDGE_SCROLL_SPEED = 8;
+const SPACE_META_PERSIST_DELAY_MS = 320;
 const EMPTY_SPACE_FLOAT_PROFILE = Object.freeze({
   orbitPeriodMs: 12400,
   rotationAmplitude: 3.2,
@@ -280,6 +295,45 @@ function ensureSpacesRuntimeNamespace() {
       return createdSpace;
     },
     createWidgetSource,
+    duplicateSpace: async (spaceIdOrOptions = undefined) => {
+      const requestedSpaceId =
+        typeof spaceIdOrOptions === "string"
+          ? spaceIdOrOptions
+          : spaceIdOrOptions && typeof spaceIdOrOptions === "object"
+            ? spaceIdOrOptions.spaceId ?? spaceIdOrOptions.id
+            : activeSpacesStore?.currentSpaceId;
+      const targetSpaceId = normalizeOptionalSpaceId(requestedSpaceId);
+
+      if (!targetSpaceId) {
+        throw new Error("A target spaceId is required to duplicate a space.");
+      }
+
+      const duplicatedSpace = await duplicateSpaceFromStorage({
+        ...(spaceIdOrOptions && typeof spaceIdOrOptions === "object" ? spaceIdOrOptions : {}),
+        spaceId: targetSpaceId
+      });
+
+      if (activeSpacesStore) {
+        await activeSpacesStore.handleExternalMutation(duplicatedSpace.id);
+      }
+
+      return duplicatedSpace;
+    },
+    installExampleSpace: async (options = {}) => {
+      const createdSpace = await installExampleSpaceFromStorage(options);
+
+      if (options.open !== false && globalThis.space.router) {
+        await namespace.openSpace(createdSpace.id, {
+          replace: options.replace !== false
+        });
+      }
+
+      if (activeSpacesStore) {
+        await activeSpacesStore.handleExternalMutation(createdSpace.id);
+      }
+
+      return createdSpace;
+    },
     current: previousNamespace.current || null,
     currentId: String(previousNamespace.currentId || ""),
     defineWidget,
@@ -742,11 +796,20 @@ function createCurrentSpaceRuntime(namespace) {
     get id() {
       return activeSpacesStore?.currentSpace?.id || "";
     },
+    get icon() {
+      return activeSpacesStore?.currentSpaceIconDraft || "";
+    },
+    get iconColor() {
+      return activeSpacesStore?.currentSpaceIconColorDraft || "";
+    },
     get path() {
       return activeSpacesStore?.currentSpace ? buildSpaceRootPath(activeSpacesStore.currentSpace.id) : "";
     },
+    get specialInstructions() {
+      return activeSpacesStore?.currentSpaceInstructionsDraft || "";
+    },
     get title() {
-      return activeSpacesStore?.currentSpace?.title || "";
+      return activeSpacesStore?.currentSpaceTitleDraft || "";
     },
     get updatedAt() {
       return activeSpacesStore?.currentSpace?.updatedAt || "";
@@ -868,6 +931,18 @@ function createGridStateCard(titleValue, bodyValue, tone = "info") {
   root.appendChild(createElement("h2", "spaces-grid-state-title", titleValue));
   root.appendChild(createElement("p", "spaces-grid-state-copy", bodyValue));
   return root;
+}
+
+function createLoadingCanvasState() {
+  const root = createElement("section", "spaces-empty-canvas spaces-loading-canvas");
+  const content = createElement("div", "spaces-empty-canvas-content spaces-loading-canvas-content");
+  const title = createElement("h2", "spaces-empty-canvas-title spaces-loading-canvas-title");
+
+  title.appendChild(createElement("span", "spaces-empty-canvas-line", "Loading space..."));
+  content.appendChild(title);
+  root.appendChild(content);
+
+  return { root, title };
 }
 
 function createEmptyCanvasState() {
@@ -1783,11 +1858,15 @@ const spacesModel = {
   creatingSpace: false,
   currentCanvasBounds: null,
   currentSpace: null,
+  currentSpaceIconColorDraft: "",
+  currentSpaceIconDraft: "",
   currentSpaceId: "",
+  currentSpaceInstructionsDraft: "",
   currentResolvedLayout: null,
   currentSpaceTitleDraft: "",
   emptyCanvasCleanup: null,
   hasCenteredCurrentSpace: false,
+  isConfigPanelOpen: false,
   layoutInteraction: null,
   layoutPersistPromise: Promise.resolve(),
   layoutPointerMoveHandler: null,
@@ -1802,8 +1881,11 @@ const spacesModel = {
   canvasWheelHandler: null,
   renderFadeCleanup: null,
   refs: {},
-  savingTitle: false,
+  savingSpaceMeta: false,
   spaceList: [],
+  spaceMetaPersistPromise: null,
+  spaceMetaPersistQueued: false,
+  spaceMetaPersistTimer: 0,
   viewportResizeHandler: null,
   widgetCards: {},
   widgetErrorCount: 0,
@@ -1830,6 +1912,9 @@ const spacesModel = {
   },
 
   unmount() {
+    void this.flushCurrentSpaceMetaSave({
+      suppressErrors: true
+    });
     this.cleanupEmptyCanvas();
     this.cleanupRenderFade();
     this.cleanupLayoutInteraction({
@@ -1842,13 +1927,21 @@ const spacesModel = {
     }
 
     this.widgetLoadToken += 1;
+    this.clearSpaceMetaPersistTimer();
     this.cameraOffsetPx = {
       x: 0,
       y: 0
     };
     this.currentCanvasBounds = null;
     this.currentResolvedLayout = null;
+    this.currentSpaceIconColorDraft = "";
+    this.currentSpaceIconDraft = "";
+    this.currentSpaceId = "";
+    this.currentSpaceInstructionsDraft = "";
     this.currentSpace = null;
+    this.currentSpaceTitleDraft = "";
+    this.isConfigPanelOpen = false;
+    this.spaceMetaPersistQueued = false;
     this.refs.grid?.replaceChildren();
     this.motionQuery = null;
     this.hasCenteredCurrentSpace = false;
@@ -1883,7 +1976,7 @@ const spacesModel = {
   },
 
   get isBusy() {
-    return this.loadingList || this.loadingSpace || this.creatingSpace || this.savingTitle;
+    return this.loadingList || this.loadingSpace || this.creatingSpace || this.savingSpaceMeta;
   },
 
   get currentSpaceFolderPath() {
@@ -1899,9 +1992,52 @@ const spacesModel = {
     return `${count} ${count === 1 ? "widget" : "widgets"}`;
   },
 
-  get canSaveTitle() {
-    const nextTitle = String(this.currentSpaceTitleDraft || "").trim();
-    return Boolean(this.currentSpace && nextTitle && nextTitle !== this.currentSpace.title && !this.savingTitle);
+  get currentSpaceDisplayIcon() {
+    return getSpaceDisplayIcon(this.currentSpaceIconDraft);
+  },
+
+  get currentSpaceDisplayIconColor() {
+    return getSpaceDisplayIconColor(this.currentSpaceIconColorDraft);
+  },
+
+  get currentSpaceDisplayTitle() {
+    return getSpaceDisplayTitle(this.currentSpaceTitleDraft);
+  },
+
+  get currentSpaceMetaToggleLabel() {
+    return this.isConfigPanelOpen ? "Collapse space settings" : "Expand space settings";
+  },
+
+  get currentSpaceIconPickerLabel() {
+    const iconName = normalizeSpaceIcon(this.currentSpaceIconDraft);
+
+    if (iconName) {
+      return `Change space icon (${iconName})`;
+    }
+
+    return "Change space icon";
+  },
+
+  async goBackToDashboard() {
+    if (!globalThis.space.router) {
+      return;
+    }
+
+    await globalThis.space.router.back("dashboard");
+  },
+
+  get hasPendingCurrentSpaceMetaChanges() {
+    if (!this.currentSpace) {
+      return false;
+    }
+
+    return (
+      normalizeSpaceIcon(this.currentSpaceIconDraft) !== normalizeSpaceIcon(this.currentSpace.icon) ||
+      normalizeSpaceIconColor(this.currentSpaceIconColorDraft) !== normalizeSpaceIconColor(this.currentSpace.iconColor) ||
+      normalizeSpaceTitle(this.currentSpaceTitleDraft) !== normalizeSpaceTitle(this.currentSpace.title) ||
+      normalizeSpaceSpecialInstructions(this.currentSpaceInstructionsDraft) !==
+        normalizeSpaceSpecialInstructions(this.currentSpace.specialInstructions)
+    );
   },
 
   setNotice(textValue, tone = "info") {
@@ -1912,6 +2048,192 @@ const spacesModel = {
   clearNotice() {
     this.noticeText = "";
     this.noticeTone = "info";
+  },
+
+  clearSpaceMetaPersistTimer() {
+    if (this.spaceMetaPersistTimer) {
+      window.clearTimeout(this.spaceMetaPersistTimer);
+      this.spaceMetaPersistTimer = 0;
+    }
+  },
+
+  toggleConfigPanel() {
+    if (this.isConfigPanelOpen) {
+      this.closeConfigPanel();
+      return;
+    }
+
+    this.isConfigPanelOpen = true;
+  },
+
+  closeConfigPanel() {
+    this.isConfigPanelOpen = false;
+    void this.flushCurrentSpaceMetaSave({
+      suppressErrors: true
+    });
+  },
+
+  queueCurrentSpaceMetaSave() {
+    if (!this.currentSpaceId || !this.currentSpace) {
+      return;
+    }
+
+    this.clearSpaceMetaPersistTimer();
+    this.spaceMetaPersistTimer = window.setTimeout(() => {
+      this.spaceMetaPersistTimer = 0;
+      void this.persistCurrentSpaceMeta();
+    }, SPACE_META_PERSIST_DELAY_MS);
+  },
+
+  async openCurrentSpaceIconSelector() {
+    if (!this.currentSpaceId || !this.currentSpace) {
+      return null;
+    }
+
+    try {
+      const selection = await openIconColorSelector({
+        allowNone: false,
+        color: normalizeSpaceIconColor(this.currentSpaceIconColorDraft),
+        defaultColor: "",
+        defaultIcon: "",
+        defaultPreviewColor: DEFAULT_SPACE_ICON_COLOR,
+        defaultPreviewIcon: DEFAULT_SPACE_ICON,
+        icon: normalizeSpaceIcon(this.currentSpaceIconDraft),
+        resetLabel: "Use default icon"
+      });
+
+      if (!selection) {
+        return null;
+      }
+
+      const nextIcon = normalizeSpaceIcon(selection.icon);
+      const nextColor = normalizeSpaceIconColor(selection.color);
+      const currentIcon = normalizeSpaceIcon(this.currentSpaceIconDraft);
+      const currentColor = normalizeSpaceIconColor(this.currentSpaceIconColorDraft);
+
+      if (nextIcon === currentIcon && nextColor === currentColor) {
+        return this.currentSpace;
+      }
+
+      this.currentSpaceIconDraft = nextIcon;
+      this.currentSpaceIconColorDraft = nextColor;
+      await this.flushCurrentSpaceMetaSave({
+        suppressErrors: true
+      });
+      return this.currentSpace;
+    } catch (error) {
+      logSpacesError("openCurrentSpaceIconSelector failed", error, {
+        spaceId: this.currentSpaceId
+      });
+      this.setNotice(formatErrorMessage(error, "Unable to open the icon selector."), "error");
+      return null;
+    }
+  },
+
+  updateSpaceListEntry(spaceRecord) {
+    if (!spaceRecord?.id) {
+      return;
+    }
+
+    const nextUpdatedAtLabel = spaceRecord.updatedAt ? new Date(spaceRecord.updatedAt).toLocaleString() : "Unknown update time";
+
+    this.spaceList = this.spaceList.map((entry) =>
+      entry?.id !== spaceRecord.id
+        ? entry
+        : {
+            ...entry,
+            displayIcon: getSpaceDisplayIcon(spaceRecord),
+            displayIconColor: getSpaceDisplayIconColor(spaceRecord),
+            displayTitle: getSpaceDisplayTitle(spaceRecord),
+            icon: spaceRecord.icon,
+            iconColor: spaceRecord.iconColor,
+            specialInstructions: spaceRecord.specialInstructions || "",
+            title: spaceRecord.title,
+            updatedAt: spaceRecord.updatedAt,
+            updatedAtLabel: nextUpdatedAtLabel
+          }
+    );
+  },
+
+  async persistCurrentSpaceMeta() {
+    if (!this.currentSpaceId || !this.currentSpace || !this.hasPendingCurrentSpaceMetaChanges) {
+      return this.currentSpace;
+    }
+
+    if (this.spaceMetaPersistPromise) {
+      this.spaceMetaPersistQueued = true;
+      return this.spaceMetaPersistPromise;
+    }
+
+    const targetSpaceId = this.currentSpaceId;
+    const payload = {
+      id: targetSpaceId,
+      icon: normalizeSpaceIcon(this.currentSpaceIconDraft),
+      iconColor: normalizeSpaceIconColor(this.currentSpaceIconColorDraft),
+      specialInstructions: normalizeSpaceSpecialInstructions(this.currentSpaceInstructionsDraft),
+      title: normalizeSpaceTitle(this.currentSpaceTitleDraft)
+    };
+
+    this.savingSpaceMeta = true;
+    this.spaceMetaPersistPromise = (async () => {
+      try {
+        const savedSpace = await saveSpaceMeta(payload);
+
+        if (this.currentSpaceId === targetSpaceId && this.currentSpace) {
+          this.currentSpace = {
+            ...this.currentSpace,
+            icon: savedSpace.icon,
+            iconColor: savedSpace.iconColor,
+            specialInstructions: savedSpace.specialInstructions || "",
+            title: savedSpace.title,
+            updatedAt: savedSpace.updatedAt
+          };
+          this.currentSpaceIconColorDraft = savedSpace.iconColor || "";
+          this.currentSpaceIconDraft = savedSpace.icon || "";
+          this.currentSpaceTitleDraft = savedSpace.title;
+          this.currentSpaceInstructionsDraft = savedSpace.specialInstructions || "";
+          this.updateSpaceListEntry(this.currentSpace);
+          syncSpacesRuntimeState();
+        }
+
+        return savedSpace;
+      } catch (error) {
+        logSpacesError("persistCurrentSpaceMeta failed", error, {
+          spaceId: targetSpaceId
+        });
+        this.setNotice(formatErrorMessage(error, "Unable to save the current space settings."), "error");
+        throw error;
+      } finally {
+        this.savingSpaceMeta = false;
+        this.spaceMetaPersistPromise = null;
+        const shouldPersistAgain = this.spaceMetaPersistQueued || this.hasPendingCurrentSpaceMetaChanges;
+        this.spaceMetaPersistQueued = false;
+
+        if (shouldPersistAgain && this.currentSpaceId) {
+          void this.persistCurrentSpaceMeta();
+        }
+      }
+    })();
+
+    return this.spaceMetaPersistPromise;
+  },
+
+  async flushCurrentSpaceMetaSave(options = {}) {
+    this.clearSpaceMetaPersistTimer();
+
+    if (!this.hasPendingCurrentSpaceMetaChanges) {
+      return this.currentSpace;
+    }
+
+    try {
+      return await this.persistCurrentSpaceMeta();
+    } catch (error) {
+      if (options.suppressErrors === true) {
+        return null;
+      }
+
+      throw error;
+    }
   },
 
   cleanupRenderFade() {
@@ -2619,23 +2941,6 @@ const spacesModel = {
     void this.persistLayoutSnapshot(nextSpace);
   },
 
-  buildNextSpaceTitle() {
-    const baseTitle = "Untitled Space";
-    const existingTitles = new Set(this.spaceList.map((spaceRecord) => String(spaceRecord.title || "")));
-
-    if (!existingTitles.has(baseTitle)) {
-      return baseTitle;
-    }
-
-    let suffix = 2;
-
-    while (existingTitles.has(`${baseTitle} ${suffix}`)) {
-      suffix += 1;
-    }
-
-    return `${baseTitle} ${suffix}`;
-  },
-
   async loadSpacesList() {
     this.loadingList = true;
 
@@ -2671,15 +2976,23 @@ const spacesModel = {
       }
 
       this.currentSpace = null;
+      this.currentSpaceIconColorDraft = "";
+      this.currentSpaceIconDraft = "";
       this.currentSpaceId = "";
+      this.currentSpaceInstructionsDraft = "";
       this.currentSpaceTitleDraft = "";
+      this.isConfigPanelOpen = false;
       syncSpacesRuntimeState();
       this.renderGridState("No spaces yet.", "Create a space to start building persisted widgets.");
     } catch (error) {
       logSpacesError("refreshFromRoute failed", error);
       this.currentSpace = null;
+      this.currentSpaceIconColorDraft = "";
+      this.currentSpaceIconDraft = "";
       this.currentSpaceId = "";
+      this.currentSpaceInstructionsDraft = "";
       this.currentSpaceTitleDraft = "";
+      this.isConfigPanelOpen = false;
       syncSpacesRuntimeState();
       this.renderGridState("Unable to load spaces.", formatErrorMessage(error, "Unknown spaces error."), "error");
       this.setNotice(formatErrorMessage(error, "Unable to load spaces."), "error");
@@ -2694,9 +3007,7 @@ const spacesModel = {
     this.creatingSpace = true;
 
     try {
-      const createdSpace = await createSpace({
-        title: this.buildNextSpaceTitle()
-      });
+      const createdSpace = await createSpace();
 
       await this.loadSpacesList();
       await spacesRuntime.openSpace(createdSpace.id, { replace: true });
@@ -2717,9 +3028,7 @@ const spacesModel = {
     this.creatingSpace = true;
 
     try {
-      const createdSpace = await createSpace({
-        title: this.buildNextSpaceTitle()
-      });
+      const createdSpace = await createSpace();
 
       await spacesRuntime.openSpace(createdSpace.id);
     } catch (error) {
@@ -2739,8 +3048,19 @@ const spacesModel = {
   },
 
   renderGridState(titleValue, bodyValue, tone = "info") {
-    if (!this.refs.grid) {
+    const grid = this.prepareGridForStandaloneState();
+
+    if (!grid) {
       return;
+    }
+
+    grid.replaceChildren(createGridStateCard(titleValue, bodyValue, tone));
+    syncSpacesRuntimeState();
+  },
+
+  prepareGridForStandaloneState() {
+    if (!this.refs.grid) {
+      return null;
     }
 
     this.cleanupEmptyCanvas();
@@ -2756,11 +3076,28 @@ const spacesModel = {
     this.hasCenteredCurrentSpace = false;
     this.refs.grid.style.removeProperty("width");
     this.refs.grid.style.removeProperty("height");
-    this.refs.grid.replaceChildren(createGridStateCard(titleValue, bodyValue, tone));
+    this.refs.grid.replaceChildren();
+
+    return this.refs.grid;
+  },
+
+  renderLoadingSpaceState() {
+    const grid = this.prepareGridForStandaloneState();
+
+    if (!grid) {
+      return;
+    }
+
+    const loadingCanvas = createLoadingCanvasState();
+    grid.appendChild(loadingCanvas.root);
+    this.emptyCanvasCleanup = startFloatingTitleAnimation(loadingCanvas.title, this.motionQuery);
     syncSpacesRuntimeState();
   },
 
   async loadCurrentSpace(spaceId) {
+    await this.flushCurrentSpaceMetaSave({
+      suppressErrors: true
+    });
     this.loadingSpace = true;
     this.widgetLoadToken += 1;
     const loadToken = this.widgetLoadToken;
@@ -2773,11 +3110,14 @@ const spacesModel = {
     };
     this.currentCanvasBounds = null;
     this.currentResolvedLayout = null;
+    this.currentSpaceIconColorDraft = "";
+    this.currentSpaceIconDraft = "";
+    this.currentSpaceInstructionsDraft = "";
     this.currentSpaceTitleDraft = "";
     this.hasCenteredCurrentSpace = false;
     this.widgetCards = {};
     this.widgetErrorCount = 0;
-    this.renderGridState("Loading space...", `Reading ${buildSpaceRootPath(spaceId)} and replaying its widgets.`);
+    this.renderLoadingSpaceState();
 
     try {
       const spaceRecord = await readSpace(spaceId);
@@ -2787,7 +3127,10 @@ const spacesModel = {
       }
 
       this.currentSpace = spaceRecord;
+      this.currentSpaceIconColorDraft = spaceRecord.iconColor || "";
+      this.currentSpaceIconDraft = spaceRecord.icon || "";
       this.currentSpaceId = spaceRecord.id;
+      this.currentSpaceInstructionsDraft = spaceRecord.specialInstructions || "";
       this.currentSpaceTitleDraft = spaceRecord.title;
       syncSpacesRuntimeState();
       await this.renderCurrentSpace(spaceRecord, loadToken);
@@ -2797,7 +3140,11 @@ const spacesModel = {
       }
 
       this.currentSpace = null;
+      this.currentSpaceIconColorDraft = "";
+      this.currentSpaceIconDraft = "";
+      this.currentSpaceInstructionsDraft = "";
       this.currentSpaceTitleDraft = "";
+      this.isConfigPanelOpen = false;
       syncSpacesRuntimeState();
       this.renderGridState(
         "Unable to open this space.",
@@ -2880,30 +3227,6 @@ const spacesModel = {
     await Promise.allSettled(renderJobs);
   },
 
-  async saveCurrentTitle() {
-    if (!this.canSaveTitle) {
-      return;
-    }
-
-    this.savingTitle = true;
-
-    try {
-      await saveSpaceMeta({
-        id: this.currentSpaceId,
-        title: this.currentSpaceTitleDraft.trim()
-      });
-      await this.handleExternalMutation(this.currentSpaceId);
-      this.setNotice("Space title saved.");
-    } catch (error) {
-      logSpacesError("saveCurrentTitle failed", error, {
-        spaceId: this.currentSpaceId
-      });
-      this.setNotice(formatErrorMessage(error, "Unable to save the current space title."), "error");
-    } finally {
-      this.savingTitle = false;
-    }
-  },
-
   async reloadCurrentSpace() {
     await this.handleExternalMutation(this.currentSpaceId);
   },
@@ -2929,7 +3252,10 @@ const spacesModel = {
       }
 
       this.currentSpace = spaceRecord;
+      this.currentSpaceIconColorDraft = spaceRecord.iconColor || "";
+      this.currentSpaceIconDraft = spaceRecord.icon || "";
       this.currentSpaceId = spaceRecord.id;
+      this.currentSpaceInstructionsDraft = spaceRecord.specialInstructions || "";
       this.currentSpaceTitleDraft = spaceRecord.title;
       this.cameraOffsetPx = preservedCameraOffset;
       syncSpacesRuntimeState();
@@ -2956,8 +3282,12 @@ const spacesModel = {
     }
 
     this.currentSpace = null;
+    this.currentSpaceIconColorDraft = "";
+    this.currentSpaceIconDraft = "";
     this.currentSpaceId = "";
+    this.currentSpaceInstructionsDraft = "";
     this.currentSpaceTitleDraft = "";
+    this.isConfigPanelOpen = false;
     syncSpacesRuntimeState();
 
     if (this.spaceList.length > 0) {

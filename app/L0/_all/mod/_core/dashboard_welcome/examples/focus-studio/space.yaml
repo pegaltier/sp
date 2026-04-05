@@ -1,0 +1,19 @@
+schema: spaces/v2
+id: focus-studio
+title: Focus Studio
+icon: palette
+icon_color: #ffb36b
+created_at: 2026-04-01T09:00:00.000Z
+updated_at: 2026-04-01T09:00:00.000Z
+layout_order:
+  - focus-rhythm
+  - palette-shelf
+  - idea-stack
+sizes:
+  focus-rhythm: 4x3
+  palette-shelf: 4x3
+  idea-stack: 8x4
+positions:
+  focus-rhythm: -4,-1
+  palette-shelf: 1,-1
+  idea-stack: -4,3

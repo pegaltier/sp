@@ -17,6 +17,7 @@ Documentation is top priority for this area. After any change under `app/` or an
 Current module-local docs in the app tree:
 
 - `app/L0/_all/mod/_core/dashboard/AGENTS.md`
+- `app/L0/_all/mod/_core/dashboard_welcome/AGENTS.md`
 - `app/L0/_all/mod/_core/framework/AGENTS.md`
 - `app/L0/_all/mod/_core/router/AGENTS.md`
 - `app/L0/_all/mod/_core/spaces/AGENTS.md`
@@ -93,7 +94,7 @@ Current major first-party modules under `app/L0/_all/mod/_core/`:
 - `admin/`: firmware-backed admin shell and panels
 - `onscreen_agent/`: floating routed overlay agent and the first-party user-facing agent surface
 - `onscreen_menu/`: top-right routed shell menu extension
-- `dashboard/`, `spaces/`, and the `space/` compatibility shim: current routed feature surfaces under the router
+- `dashboard/`, `dashboard_welcome/`, `spaces/`, and the `space/` compatibility shim: current routed feature surfaces and dashboard-injected surfaces under the router
 
 ## Layer Rules And Module Model
 
@@ -201,7 +202,8 @@ Runtime guidance:
 - `globalThis.space` is scoped to the current window or iframe only; do not publish it into other browsing contexts
 - use `space.api` for authenticated backend calls
 - use `space.api.folderDownloadUrl(...)` when a folder download should stay as a browser attachment instead of fetching the archive blob into frontend memory
-- keep feature-owned runtime namespaces under `space` explicit and narrow; `_core/spaces` owns `space.current` for current-space widget authoring, live widget-state descriptors, and batch layout or toggle or removal helpers plus `space.spaces` for persisted space CRUD, loaded-space collections, lower-level widget/storage helpers, and spaces-owned prompt context injection, `_core/onscreen_agent` owns `space.onscreenAgent` for overlay display control and prompt submission, and agent surfaces publish the active thread snapshot at `space.chat`
+- keep feature-owned runtime namespaces under `space` explicit and narrow; `_core/spaces` owns `space.current` for current-space widget authoring, live widget-state descriptors, and batch layout or toggle or removal helpers plus `space.spaces` for persisted space CRUD, loaded-space collections, lower-level widget or folder-copy duplication or storage helpers, and spaces-owned prompt context injection, `_core/onscreen_agent` owns `space.onscreenAgent` for overlay display control and prompt submission, and agent surfaces publish the active thread snapshot at `space.chat`
+- shared visual helpers may publish small reusable UI entry points under `space.visual`; the current shared selector contract is `_core/visual/icons/icon-color-selector.js`, which registers `space.visual.openIconColorSelector(options)` after that module is imported
 - use `space.api.userSelfInfo()` as the canonical browser-side identity and scope snapshot; it returns group membership plus the readable and writable logical app roots the current user can use from the frontend
 - use `space.config` for frontend reads of backend parameters that were explicitly marked `frontend_exposed`
 - use `space.utils.markdown.render(text, target)` for lightweight shared markdown rendering into a `.markdown` wrapper and `space.utils.markdown.parseDocument(...)` for frontmatter parsing; keep feature-local presentation in the owning module's CSS
@@ -237,14 +239,15 @@ Detailed visual subsystem rules now live in `app/L0/_all/mod/_core/visual/AGENTS
 - `framework/` owns frontend bootstrap and runtime primitives; see `app/L0/_all/mod/_core/framework/AGENTS.md`
 - `router/` owns the authenticated app shell, routing, and routed extension anchors; see `app/L0/_all/mod/_core/router/AGENTS.md`
 - `dashboard/` owns the routed dashboard shell and its dashboard-local extension seam; see `app/L0/_all/mod/_core/dashboard/AGENTS.md`
-- `visual/` owns the shared visual system and reusable presentation primitives; see `app/L0/_all/mod/_core/visual/AGENTS.md`
+- `dashboard_welcome/` owns the dismissible dashboard welcome panel and bundled demo spaces; see `app/L0/_all/mod/_core/dashboard_welcome/AGENTS.md`
+- `visual/` owns the shared visual system, reusable presentation primitives, and shared icon-selection modal helpers; see `app/L0/_all/mod/_core/visual/AGENTS.md`
 - `admin/` owns the firmware-backed admin shell, panels, and admin-specific skills/runtime glue; see `app/L0/_all/mod/_core/admin/AGENTS.md`
 - `admin/views/agent/` owns the admin-side agent surface; see `app/L0/_all/mod/_core/admin/views/agent/AGENTS.md`
 - `admin/views/files/` owns the firmware-backed file browser; see `app/L0/_all/mod/_core/admin/views/files/AGENTS.md`
 - `admin/views/modules/` owns the firmware-backed modules panel; see `app/L0/_all/mod/_core/admin/views/modules/AGENTS.md`
 - `onscreen_agent/` owns the floating routed overlay agent; see `app/L0/_all/mod/_core/onscreen_agent/AGENTS.md`
 - `onscreen_menu/` owns the routed shell menu extension; see `app/L0/_all/mod/_core/onscreen_menu/AGENTS.md`
-- `spaces/` owns the routed spaces canvas, empty-canvas prompt, widget SDK, and persisted centered-coordinate space runtime; see `app/L0/_all/mod/_core/spaces/AGENTS.md`
+- `spaces/` owns the routed spaces canvas, empty-canvas prompt, widget SDK, and persisted centered-coordinate space runtime plus dashboard-facing space metadata such as title, icon, color, and special instructions; see `app/L0/_all/mod/_core/spaces/AGENTS.md`
 
 ## Guidance
 

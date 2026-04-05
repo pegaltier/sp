@@ -1,0 +1,15 @@
+schema: space-widget/v1
+id: idea-stack
+name: Idea Stack
+cols: 8
+rows: 4
+renderer: |
+  async (parent, space) => {
+    await space.utils.markdown.render([
+      "### Notes",
+      "",
+      "- Keep the main layout quiet and let spacing do the work.",
+      "- Use one accent at a time.",
+      "- Treat widgets like small tools, not mini landing pages."
+    ].join("\n"), parent);
+  }

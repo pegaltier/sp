@@ -358,7 +358,7 @@ function findLargestEntryForPosition(entries, position, widthThreshold, occupied
       }
     );
 
-    if (!shouldPreferNextRow(currentMetrics, nextMetrics)) {
+    if (!shouldPreferNextRow(currentMetrics, nextMetrics, position)) {
       return {
         entry,
         preferNextRow: false
@@ -370,6 +370,16 @@ function findLargestEntryForPosition(entries, position, widthThreshold, occupied
     entry: null,
     preferNextRow: hasPhysicalFit
   };
+}
+
+function findNextRowStart(currentRow, occupiedRects) {
+  let nextRow = Math.max(0, Math.floor(currentRow) + 1);
+
+  while (isScanCellOccupied({ col: 0, row: nextRow }, occupiedRects)) {
+    nextRow += 1;
+  }
+
+  return nextRow;
 }
 
 function buildFirstFitPackedPositions(entries, widthThreshold, options = {}) {
@@ -427,7 +437,7 @@ function buildFirstFitPackedPositions(entries, widthThreshold, options = {}) {
     }
 
     if (advanceRow) {
-      row += 1;
+      row = findNextRowStart(row, occupiedRects);
       continue;
     }
 
@@ -521,8 +531,14 @@ function computePackedMetrics(positions, sizes) {
   };
 }
 
-function shouldPreferNextRow(currentMetrics, nextMetrics) {
+function shouldPreferNextRow(currentMetrics, nextMetrics, position = DEFAULT_WIDGET_POSITION) {
   if ((currentMetrics?.itemCount || 0) < MIN_VERTICALITY_ITEM_COUNT) {
+    return false;
+  }
+
+  // Only defer when placing later in the current scan row; once we move to a
+  // fresh row start, accept the best physical fit instead of cascading gaps.
+  if ((position?.col || 0) <= 0) {
     return false;
   }
 

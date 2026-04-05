@@ -5,71 +5,110 @@
   </head>
   <body>
     <section class="dashboard-spaces-launcher" x-data="spacesDashboardLauncher()" x-init="init()">
-      <div class="dashboard-spaces-launcher-header">
-        <div>
-          <p class="page-eyebrow">Spaces</p>
-          <h2>Open an existing space or create a new one.</h2>
-          <p class="dashboard-spaces-launcher-copy">
-            This content is injected by the spaces module through the dashboard extension seam.
-          </p>
+      <div class="dashboard-spaces-launcher-shell">
+        <div class="dashboard-spaces-launcher-header">
+          <h2>My Spaces</h2>
         </div>
 
-        <button
-          type="button"
-          class="primary-button"
-          :disabled="creating"
-          @click="createSpace()"
-        >
-          <x-icon>add</x-icon>
-          <span>New Space</span>
-        </button>
-      </div>
-
-      <template x-if="noticeText">
-        <div class="dashboard-spaces-launcher-notice" :class="{ 'is-error': noticeTone === 'error' }">
-          <x-icon x-text="noticeTone === 'error' ? 'error' : 'info'"></x-icon>
-          <span x-text="noticeText"></span>
-        </div>
-      </template>
-
-      <div class="dashboard-spaces-launcher-list">
-        <template x-if="loading && !hasEntries">
+        <template x-if="loading">
           <div class="dashboard-spaces-launcher-empty">
-            <p>Loading spaces...</p>
+            <x-icon>schedule</x-icon>
+            <p>Loading your spaces…</p>
           </div>
         </template>
 
-        <template x-if="!loading && !hasEntries">
-          <div class="dashboard-spaces-launcher-empty">
-            <p>No spaces yet.</p>
-            <p>Create one to start rendering persisted widgets.</p>
+        <template x-if="!loading && loadErrorText">
+          <div class="dashboard-spaces-launcher-empty is-error">
+            <x-icon>error</x-icon>
+            <p x-text="loadErrorText"></p>
+            <button type="button" class="secondary-button" @click="loadSpaces()">
+              <x-icon>refresh</x-icon>
+              <span>Try Again</span>
+            </button>
           </div>
         </template>
 
-        <template x-for="item in entries" :key="item.id">
-          <article class="dashboard-spaces-launcher-item">
-            <button
-              type="button"
-              class="dashboard-spaces-launcher-open"
-              :disabled="deletingSpaceId === item.id"
-              @click="openSpace(item.id)"
-            >
-              <span class="dashboard-spaces-launcher-title" x-text="item.title"></span>
-              <span class="dashboard-spaces-launcher-id" x-text="item.id"></span>
-              <span class="dashboard-spaces-launcher-meta" x-text="item.widgetCountLabel"></span>
-              <span class="dashboard-spaces-launcher-meta" x-text="item.updatedAtLabel"></span>
+        <template x-if="!loading && !loadErrorText && !hasEntries">
+          <div class="dashboard-spaces-launcher-empty">
+            <p class="dashboard-spaces-launcher-empty-title" x-ref="emptyTitle">You do not have any spaces yet.</p>
+            <button type="button" class="primary-button dashboard-spaces-launcher-empty-button" :disabled="creating" @click="createSpace()">
+              <x-icon x-text="creating ? 'hourglass_top' : 'add'"></x-icon>
+              <span x-text="creating ? 'Creating…' : 'Create Space'"></span>
             </button>
+          </div>
+        </template>
 
-            <button
-              type="button"
-              class="secondary-button danger dashboard-spaces-launcher-delete"
-              :disabled="deletingSpaceId === item.id"
-              @click="deleteSpace(item.id)"
-            >
-              <x-icon x-text="deletingSpaceId === item.id ? 'hourglass_top' : 'delete'"></x-icon>
-              <span x-text="deletingSpaceId === item.id ? 'Deleting...' : 'Delete'"></span>
-            </button>
-          </article>
+        <template x-if="!loading && !loadErrorText && hasEntries">
+          <div class="dashboard-spaces-launcher-grid">
+            <article class="dashboard-space-card dashboard-space-card--create">
+              <button type="button" class="dashboard-space-card-create" :disabled="creating" @click="createSpace()">
+                <span class="dashboard-space-card-create-icon">
+                  <x-icon x-text="creating ? 'hourglass_top' : 'add'"></x-icon>
+                </span>
+                <div class="dashboard-space-card-create-copy">
+                  <strong x-text="creating ? 'Creating Space…' : 'Create New Space'"></strong>
+                </div>
+              </button>
+            </article>
+
+            <template x-for="item in entries" :key="item.id">
+              <article class="dashboard-space-card">
+                <button
+                  type="button"
+                  class="dashboard-space-card-open"
+                  :disabled="deletingSpaceId === item.id || duplicatingSpaceId === item.id"
+                  @click="openSpace(item.id)"
+                >
+                  <div class="dashboard-space-card-copy">
+                    <h3 x-text="item.displayTitle"></h3>
+                  </div>
+
+                  <span
+                    class="dashboard-space-card-icon"
+                    :style="{ '--dashboard-space-card-icon-color': item.displayIconColor }"
+                  >
+                    <x-icon x-text="item.displayIcon"></x-icon>
+                  </span>
+
+                  <div class="dashboard-space-card-tags">
+                    <template x-for="tag in item.widgetPreviewNames" :key="`${item.id}-${tag}`">
+                      <span class="dashboard-space-card-tag" x-text="tag"></span>
+                    </template>
+
+                    <template x-if="!item.widgetPreviewNames.length">
+                      <span class="dashboard-space-card-tag is-muted">Empty</span>
+                    </template>
+                  </div>
+                </button>
+
+                <div class="dashboard-space-card-footer">
+                  <p class="dashboard-space-card-date" x-text="item.localeUpdatedAt"></p>
+
+                  <div class="dashboard-space-card-actions">
+                    <button
+                      type="button"
+                      class="dashboard-space-card-action"
+                      :aria-label="`Duplicate ${item.displayTitle}`"
+                      :disabled="deletingSpaceId === item.id || duplicatingSpaceId === item.id"
+                      @click="duplicateSpace(item.id)"
+                    >
+                      <x-icon x-text="duplicatingSpaceId === item.id ? 'hourglass_top' : 'content_copy'"></x-icon>
+                    </button>
+
+                    <button
+                      type="button"
+                      class="dashboard-space-card-action dashboard-space-card-action--danger"
+                      :aria-label="`Delete ${item.displayTitle}`"
+                      :disabled="deletingSpaceId === item.id || duplicatingSpaceId === item.id"
+                      @click="deleteSpace(item.id)"
+                    >
+                      <x-icon x-text="deletingSpaceId === item.id ? 'hourglass_top' : 'delete'"></x-icon>
+                    </button>
+                  </div>
+                </div>
+              </article>
+            </template>
+          </div>
         </template>
       </div>
     </section>

@@ -1,0 +1,32 @@
+schema: space-widget/v1
+id: mission-overview
+name: Mission Overview
+cols: 6
+rows: 3
+renderer: |
+  (parent) => {
+    parent.innerHTML = `
+      <div style="display:grid; gap:0.9rem; height:100%; align-content:start;">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;">
+          <div>
+            <div style="font-size:0.72rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--color-text-tertiary);">Current uplink</div>
+            <div style="margin-top:0.35rem; font-size:1.18rem; font-weight:600; letter-spacing:-0.02em;">North relay is stable.</div>
+          </div>
+          <div style="padding:0.42rem 0.72rem; border-radius:999px; background:rgba(121, 237, 216, 0.12); color:var(--color-accent-secondary); font-size:0.74rem;">Live</div>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:0.55rem;">
+          <div style="padding:0.72rem; border-radius:0.95rem; background:rgba(255, 255, 255, 0.03);">
+            <div style="font-size:1.05rem; font-weight:600;">18</div>
+            <div style="margin-top:0.18rem; color:var(--color-text-tertiary); font-size:0.74rem;">nodes</div>
+          </div>
+          <div style="padding:0.72rem; border-radius:0.95rem; background:rgba(255, 255, 255, 0.03);">
+            <div style="font-size:1.05rem; font-weight:600;">3.8s</div>
+            <div style="margin-top:0.18rem; color:var(--color-text-tertiary); font-size:0.74rem;">latency</div>
+          </div>
+          <div style="padding:0.72rem; border-radius:0.95rem; background:rgba(255, 255, 255, 0.03);">
+            <div style="font-size:1.05rem; font-weight:600;">94%</div>
+            <div style="margin-top:0.18rem; color:var(--color-text-tertiary); font-size:0.74rem;">signal</div>
+          </div>
+        </div>
+      </div>`;
+  }

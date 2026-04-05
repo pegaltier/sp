@@ -15,7 +15,6 @@ export async function post(context) {
 
   try {
     const options = {
-      entries: payload.entries,
       fromPath: String(payload.fromPath || context.params.fromPath || ""),
       projectRoot: context.projectRoot,
       runtimeParams: context.runtimeParams,
@@ -23,6 +22,9 @@ export async function post(context) {
       username: context.user?.username,
       watchdog: context.watchdog
     };
+    if (hasBatchCopy(payload)) {
+      options.entries = payload.entries;
+    }
     const result = hasBatchCopy(payload) ? copyAppPaths(options) : copyAppPath(options);
 
     if (context.watchdog && typeof context.watchdog.refresh === "function") {

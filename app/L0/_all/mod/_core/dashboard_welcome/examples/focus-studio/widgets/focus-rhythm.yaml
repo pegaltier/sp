@@ -1,0 +1,30 @@
+schema: space-widget/v1
+id: focus-rhythm
+name: Focus Rhythm
+cols: 4
+rows: 3
+renderer: |
+  (parent) => {
+    parent.innerHTML = `
+      <div style="display:grid; gap:0.75rem;">
+        <div style="font-size:0.76rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--color-text-tertiary);">Today</div>
+        <div style="font-size:1.2rem; font-weight:600; letter-spacing:-0.02em;">2 deep blocks finished</div>
+        <div style="display:grid; gap:0.45rem;">
+          ${[
+            ["Sketch", "90%"],
+            ["Build", "64%"],
+            ["Polish", "38%"]
+          ].map(([label, value]) => `
+            <div style="display:grid; gap:0.22rem;">
+              <div style="display:flex; justify-content:space-between; gap:0.6rem; font-size:0.8rem;">
+                <span>${label}</span>
+                <span style="color:var(--color-text-tertiary);">${value}</span>
+              </div>
+              <div style="height:0.42rem; border-radius:999px; background:rgba(255, 255, 255, 0.06); overflow:hidden;">
+                <div style="width:${value}; height:100%; border-radius:999px; background:linear-gradient(90deg, rgba(121, 237, 216, 0.9), rgba(125, 220, 255, 0.9));"></div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>`;
+  }

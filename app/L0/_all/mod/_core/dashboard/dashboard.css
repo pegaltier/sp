@@ -1,52 +1,46 @@
 .dashboard-view {
-  display: grid;
-  align-content: start;
   min-height: 100%;
-  padding: clamp(20px, 3vw, 34px) clamp(16px, 3vw, 32px) clamp(26px, 4vw, 40px);
+  padding: clamp(20px, 3vw, 34px) 8em clamp(26px, 4vw, 40px);
   box-sizing: border-box;
 }
 
-.dashboard-hero {
-  width: min(100%, 52rem);
-  justify-self: center;
-  padding: clamp(1.4rem, 2.5vw, 2rem);
+.dashboard-shell {
+  position: relative;
+  display: grid;
+  gap: clamp(1.1rem, 2.8vw, 1.75rem);
+  width: min(100%, 78rem);
+  margin: 0 auto;
+}
+
+.dashboard-shell::before {
+  content: "";
+  position: absolute;
+  top: -6rem;
+  left: 10%;
+  width: min(34rem, 58vw);
+  height: 20rem;
+  border-radius: 999px;
   background:
-    radial-gradient(680px 300px at 50% -80px, rgba(148, 188, 255, 0.14) 0%, transparent 72%),
-    linear-gradient(180deg, rgba(16, 27, 45, 0.96) 0%, rgba(11, 19, 33, 0.96) 100%);
+    radial-gradient(circle at 30% 35%, rgba(125, 220, 255, 0.18), transparent 58%),
+    radial-gradient(circle at 72% 42%, rgba(121, 237, 216, 0.14), transparent 55%),
+    radial-gradient(circle at 50% 80%, rgba(148, 188, 255, 0.14), transparent 62%);
+  filter: blur(18px);
+  opacity: 0.88;
+  pointer-events: none;
 }
 
-.dashboard-hero h1 {
-  margin: 0.35rem 0 0;
-  font-size: clamp(2rem, 4.6vw, 3.7rem);
-  line-height: 0.96;
-  letter-spacing: -0.04em;
+.dashboard-stack {
+  position: relative;
+  z-index: 1;
 }
 
-.dashboard-hero p {
-  margin: 1rem 0 0;
-  max-width: 38rem;
-  color: var(--color-text-secondary);
-  font-size: 1rem;
-  line-height: 1.75;
-}
-
-.dashboard-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.9rem;
-  margin-top: 1.35rem;
-}
-
-.dashboard-route-note {
-  color: var(--color-text-tertiary);
-  font-size: 0.86rem;
-  letter-spacing: 0.03em;
+.dashboard-stack {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.35rem);
 }
 
 @media (max-width: 720px) {
-  .dashboard-hero-actions {
-    align-items: stretch;
-    flex-direction: column;
+  .dashboard-view {
+    padding-top: 18px;
   }
 }

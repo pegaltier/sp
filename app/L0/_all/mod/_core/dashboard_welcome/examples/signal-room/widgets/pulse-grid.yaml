@@ -1,0 +1,29 @@
+schema: space-widget/v1
+id: pulse-grid
+name: Pulse Grid
+cols: 4
+rows: 3
+renderer: |
+  (parent) => {
+    parent.innerHTML = `
+      <div style="display:grid; gap:0.7rem;">
+        <div style="font-size:0.76rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--color-text-tertiary);">Channel checks</div>
+        <div style="display:grid; gap:0.55rem;">
+          ${[
+            ["Core", "88%"],
+            ["Dock", "71%"],
+            ["Drift", "63%"]
+          ].map(([label, value]) => `
+            <div style="display:grid; gap:0.28rem;">
+              <div style="display:flex; justify-content:space-between; gap:0.6rem; font-size:0.82rem;">
+                <span>${label}</span>
+                <span style="color:var(--color-text-tertiary);">${value}</span>
+              </div>
+              <div style="height:0.42rem; border-radius:999px; background:rgba(255, 255, 255, 0.06); overflow:hidden;">
+                <div style="width:${value}; height:100%; border-radius:999px; background:linear-gradient(90deg, rgba(125, 220, 255, 0.9), rgba(148, 188, 255, 0.9));"></div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>`;
+  }
