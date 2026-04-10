@@ -390,10 +390,10 @@
       .run-modal-dialog {
         position: relative;
         z-index: 1;
-        width: min(31rem, 100%);
+        width: min(44rem, 100%);
         max-height: min(42rem, calc(100vh - 2rem));
         overflow-y: auto;
-        padding: 1.75rem;
+        padding: 1.35rem;
         border: 1px solid var(--color-border-strong);
         border-radius: 8px;
         background: linear-gradient(180deg, rgba(10, 17, 31, 0.96), rgba(6, 12, 23, 0.94));
@@ -430,24 +430,77 @@
       }
 
       .run-modal-title {
-        margin: 0 3rem 0 0;
+        margin: 0.3rem 3rem 0 0;
         font-size: 2rem;
         letter-spacing: 0;
         line-height: 1.05;
       }
 
-      .run-actions {
+      .run-modal-subtitle {
+        max-width: 38rem;
+        margin: 0.75rem 3rem 0 0;
+        color: var(--color-text-secondary);
+        line-height: 1.55;
+      }
+
+      .run-choices {
         display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        margin-top: 1.35rem;
+        border-top: 1px solid rgba(148, 167, 201, 0.16);
+      }
+
+      .run-choice {
+        display: flex;
+        min-width: 0;
+        min-height: 17rem;
+        flex-direction: column;
+        align-items: center;
         gap: 1rem;
-        margin-top: 2rem;
+        padding: 1.6rem 1.1rem 0.25rem;
+        text-align: center;
+      }
+
+      .run-choice + .run-choice {
+        border-left: 1px solid rgba(148, 167, 201, 0.16);
+      }
+
+      .run-choice-title {
+        margin: 0;
+        font-size: 1.35rem;
+        letter-spacing: 0;
+        line-height: 1.1;
+      }
+
+      .run-choice-copy {
+        min-height: 3.4rem;
+        margin: 0;
+        color: var(--color-text-secondary);
+        font-size: 0.95rem;
+        line-height: 1.45;
+      }
+
+      .run-choice-icon {
+        width: 6rem;
+        height: 6rem;
+        margin-block: 0.05rem 0.25rem;
+        color: var(--color-accent-primary);
+        filter: drop-shadow(0 0 20px rgba(125, 220, 255, 0.16));
+      }
+
+      .run-choice:nth-child(2) .run-choice-icon {
+        color: var(--color-accent-secondary);
+        filter: drop-shadow(0 0 20px rgba(121, 237, 216, 0.16));
       }
 
       .run-action-link {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        min-height: 3.8rem;
+        justify-content: center;
+        gap: 0.75rem;
+        width: 100%;
+        min-height: 3.5rem;
+        margin-top: auto;
         padding: 0.95rem 1rem;
         border: 1px solid var(--color-border-soft);
         border-radius: 8px;
@@ -652,13 +705,37 @@
           font-size: 1.6rem;
         }
 
-        .run-actions {
-          margin-top: 1.5rem;
+        .run-modal-subtitle {
+          margin-right: 0;
+          font-size: 0.95rem;
+        }
+
+        .run-choices {
+          grid-template-columns: 1fr;
+          margin-top: 1.1rem;
+        }
+
+        .run-choice {
+          min-height: 14.5rem;
+          padding: 1.35rem 0 1.25rem;
+        }
+
+        .run-choice + .run-choice {
+          border-top: 1px solid rgba(148, 167, 201, 0.16);
+          border-left: 0;
+        }
+
+        .run-choice-icon {
+          width: 4.8rem;
+          height: 4.8rem;
+        }
+
+        .run-choice-copy {
+          min-height: 0;
         }
 
         .run-action-link {
-          align-items: flex-start;
-          flex-direction: column;
+          width: 100%;
         }
       }
     </style>
@@ -778,50 +855,67 @@
           </svg>
         </button>
         <h2 id="run-modal-title" class="run-modal-title">Run it yourself</h2>
-        <div class="run-actions">
-          <a
-            class="run-action-link run-action-primary"
-            href="https://github.com/agent0ai/space-agent/releases/latest"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span class="run-action-label">Download native App</span>
-            <span class="run-icon-group" aria-hidden="true">
-              <svg class="run-icon" viewBox="-1.5 0 20 20">
-                <g transform="translate(-102 -7439)" fill="currentColor">
-                  <g transform="translate(56 160)">
-                    <path d="M57.5708873,7282.19296 C58.2999598,7281.34797 58.7914012,7280.17098 58.6569121,7279 C57.6062792,7279.04 56.3352055,7279.67099 55.5818643,7280.51498 C54.905374,7281.26397 54.3148354,7282.46095 54.4735932,7283.60894 C55.6455696,7283.69593 56.8418148,7283.03894 57.5708873,7282.19296 M60.1989864,7289.62485 C60.2283111,7292.65181 62.9696641,7293.65879 63,7293.67179 C62.9777537,7293.74279 62.562152,7295.10677 61.5560117,7296.51675 C60.6853718,7297.73474 59.7823735,7298.94772 58.3596204,7298.97372 C56.9621472,7298.99872 56.5121648,7298.17973 54.9134635,7298.17973 C53.3157735,7298.17973 52.8162425,7298.94772 51.4935978,7298.99872 C50.1203933,7299.04772 49.0738052,7297.68074 48.197098,7296.46676 C46.4032359,7293.98379 45.0330649,7289.44985 46.8734421,7286.3899 C47.7875635,7284.87092 49.4206455,7283.90793 51.1942837,7283.88393 C52.5422083,7283.85893 53.8153044,7284.75292 54.6394294,7284.75292 C55.4635543,7284.75292 57.0106846,7283.67793 58.6366882,7283.83593 C59.3172232,7283.86293 61.2283842,7284.09893 62.4549652,7285.8199 C62.355868,7285.8789 60.1747177,7287.09489 60.1989864,7289.62485" />
+        <p class="run-modal-subtitle">
+          For complete privacy and security, use the standalone application or host the
+          Space Agent server yourself. Both options include full extensibility and all features.
+        </p>
+        <div class="run-choices">
+          <section class="run-choice" aria-labelledby="run-native-title">
+            <h3 id="run-native-title" class="run-choice-title">Native App</h3>
+            <p class="run-choice-copy">
+              Includes both the browser runtime and backend layer in one package.
+            </p>
+            <svg class="run-choice-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 18q.825 0 1.413-.587Q22 16.825 22 16V6q0-.825-.587-1.413Q20.825 4 20 4H4q-.825 0-1.413.587Q2 5.175 2 6v10q0 .825.587 1.413Q3.175 18 4 18H0v2h24v-2h-4ZM4 6h16v10H4V6Z" fill="currentColor" />
+            </svg>
+            <a
+              class="run-action-link run-action-primary"
+              href="https://github.com/agent0ai/space-agent/releases/latest"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span class="run-action-label">Download native App</span>
+              <span class="run-icon-group" aria-hidden="true">
+                <svg class="run-icon" viewBox="-1.5 0 20 20">
+                  <g transform="translate(-102 -7439)" fill="currentColor">
+                    <g transform="translate(56 160)">
+                      <path d="M57.5708873,7282.19296 C58.2999598,7281.34797 58.7914012,7280.17098 58.6569121,7279 C57.6062792,7279.04 56.3352055,7279.67099 55.5818643,7280.51498 C54.905374,7281.26397 54.3148354,7282.46095 54.4735932,7283.60894 C55.6455696,7283.69593 56.8418148,7283.03894 57.5708873,7282.19296 M60.1989864,7289.62485 C60.2283111,7292.65181 62.9696641,7293.65879 63,7293.67179 C62.9777537,7293.74279 62.562152,7295.10677 61.5560117,7296.51675 C60.6853718,7297.73474 59.7823735,7298.94772 58.3596204,7298.97372 C56.9621472,7298.99872 56.5121648,7298.17973 54.9134635,7298.17973 C53.3157735,7298.17973 52.8162425,7298.94772 51.4935978,7298.99872 C50.1203933,7299.04772 49.0738052,7297.68074 48.197098,7296.46676 C46.4032359,7293.98379 45.0330649,7289.44985 46.8734421,7286.3899 C47.7875635,7284.87092 49.4206455,7283.90793 51.1942837,7283.88393 C52.5422083,7283.85893 53.8153044,7284.75292 54.6394294,7284.75292 C55.4635543,7284.75292 57.0106846,7283.67793 58.6366882,7283.83593 C59.3172232,7283.86293 61.2283842,7284.09893 62.4549652,7285.8199 C62.355868,7285.8789 60.1747177,7287.09489 60.1989864,7289.62485" />
+                    </g>
                   </g>
-                </g>
-              </svg>
-              <svg class="run-icon" viewBox="0 0 20 20">
-                <g transform="translate(-60 -7439)" fill="currentColor">
-                  <g transform="translate(56 160)">
-                    <path d="M13.1458647,7289.43426 C13.1508772,7291.43316 13.1568922,7294.82929 13.1619048,7297.46884 C16.7759398,7297.95757 20.3899749,7298.4613 23.997995,7299 C23.997995,7295.84873 24.002005,7292.71146 23.997995,7289.71311 C20.3809524,7289.71311 16.7649123,7289.43426 13.1458647,7289.43426 M4,7289.43526 L4,7296.22153 C6.72581454,7296.58933 9.45162907,7296.94113 12.1724311,7297.34291 C12.1774436,7294.71736 12.1704261,7292.0908 12.1704261,7289.46524 C9.44661654,7289.47024 6.72380952,7289.42627 4,7289.43526 M4,7281.84344 L4,7288.61071 C6.72581454,7288.61771 9.45162907,7288.57673 12.1774436,7288.57973 C12.1754386,7285.96017 12.1754386,7283.34361 12.1724311,7280.72405 C9.44461153,7281.06486 6.71679198,7281.42567 4,7281.84344 M24,7288.47179 C20.3879699,7288.48578 16.7759398,7288.54075 13.1619048,7288.55175 C13.1598997,7285.88921 13.1598997,7283.22967 13.1619048,7280.56914 C16.7689223,7280.01844 20.3839599,7279.50072 23.997995,7279 C24,7282.15826 23.997995,7285.31353 24,7288.47179" />
+                </svg>
+                <svg class="run-icon" viewBox="0 0 20 20">
+                  <g transform="translate(-60 -7439)" fill="currentColor">
+                    <g transform="translate(56 160)">
+                      <path d="M13.1458647,7289.43426 C13.1508772,7291.43316 13.1568922,7294.82929 13.1619048,7297.46884 C16.7759398,7297.95757 20.3899749,7298.4613 23.997995,7299 C23.997995,7295.84873 24.002005,7292.71146 23.997995,7289.71311 C20.3809524,7289.71311 16.7649123,7289.43426 13.1458647,7289.43426 M4,7289.43526 L4,7296.22153 C6.72581454,7296.58933 9.45162907,7296.94113 12.1724311,7297.34291 C12.1774436,7294.71736 12.1704261,7292.0908 12.1704261,7289.46524 C9.44661654,7289.47024 6.72380952,7289.42627 4,7289.43526 M4,7281.84344 L4,7288.61071 C6.72581454,7288.61771 9.45162907,7288.57673 12.1774436,7288.57973 C12.1754386,7285.96017 12.1754386,7283.34361 12.1724311,7280.72405 C9.44461153,7281.06486 6.71679198,7281.42567 4,7281.84344 M24,7288.47179 C20.3879699,7288.48578 16.7759398,7288.54075 13.1619048,7288.55175 C13.1598997,7285.88921 13.1598997,7283.22967 13.1619048,7280.56914 C16.7689223,7280.01844 20.3839599,7279.50072 23.997995,7279 C24,7282.15826 23.997995,7285.31353 24,7288.47179" />
+                    </g>
                   </g>
-                </g>
-              </svg>
-              <svg class="run-icon" viewBox="0 0 24 24">
-                <path
-                  d="M14.62,8.35c-.42.28-1.75,1-1.95,1.19a.82.82,0,0,1-1.14,0c-.2-.16-1.53-.92-1.95-1.19s-.45-.7.08-.92a6.16,6.16,0,0,1,4.91,0c.49.21.51.6,0,.9m7.22,7.28A19.09,19.09,0,0,0,18,10a4.31,4.31,0,0,1-1.06-1.88c-.1-.33-.17-.67-.24-1A11.32,11.32,0,0,0,16,4.47,4.06,4.06,0,0,0,12.16,2,4.2,4.2,0,0,0,8.21,4.4a5.9,5.9,0,0,0-.46,1.34c-.17.76-.32,1.55-.5,2.32a3.38,3.38,0,0,1-1,1.71,19.53,19.53,0,0,0-3.88,5.35A6.09,6.09,0,0,0,2,16c-.19.66.29,1.12,1,1,.44-.09.88-.18,1.3-.31s.57,0,.67.35a6.73,6.73,0,0,0,4.24,4.5c4.12,1.56,8.93-.66,10-4.58.07-.27.17-.37.47-.27.46.14.93.24,1.4.35a.72.72,0,0,0,.92-.64,1.44,1.44,0,0,0-.16-.73"
-                  fill="currentColor"
-                />
-              </svg>
-            </span>
-          </a>
-          <a
-            class="run-action-link"
-            href="https://github.com/agent0ai/space-agent#host"
-            target="_blank"
-            rel="noreferrer"
-          >
-            <span class="run-action-label">See how to host Space Agent</span>
-            <span class="run-icon-group" aria-hidden="true">
-              <svg class="run-icon" viewBox="0 -960 960 960">
-                <path d="M300-720q-25 0-42.5 17.5T240-660q0 25 17.5 42.5T300-600q25 0 42.5-17.5T360-660q0-25-17.5-42.5T300-720Zm0 400q-25 0-42.5 17.5T240-260q0 25 17.5 42.5T300-200q25 0 42.5-17.5T360-260q0-25-17.5-42.5T300-320ZM160-840h640q17 0 28.5 11.5T840-800v280q0 17-11.5 28.5T800-480H160q-17 0-28.5-11.5T120-520v-280q0-17 11.5-28.5T160-840Zm40 80v200h560v-200H200Zm-40 320h640q17 0 28.5 11.5T840-400v280q0 17-11.5 28.5T800-80H160q-17 0-28.5-11.5T120-120v-280q0-17 11.5-28.5T160-440Zm40 80v200h560v-200H200Zm0-400v200-200Zm0 400v200-200Z" fill="currentColor" />
-              </svg>
-            </span>
-          </a>
+                </svg>
+                <svg class="run-icon" viewBox="0 0 24 24">
+                  <path
+                    d="M14.62,8.35c-.42.28-1.75,1-1.95,1.19a.82.82,0,0,1-1.14,0c-.2-.16-1.53-.92-1.95-1.19s-.45-.7.08-.92a6.16,6.16,0,0,1,4.91,0c.49.21.51.6,0,.9m7.22,7.28A19.09,19.09,0,0,0,18,10a4.31,4.31,0,0,1-1.06-1.88c-.1-.33-.17-.67-.24-1A11.32,11.32,0,0,0,16,4.47,4.06,4.06,0,0,0,12.16,2,4.2,4.2,0,0,0,8.21,4.4a5.9,5.9,0,0,0-.46,1.34c-.17.76-.32,1.55-.5,2.32a3.38,3.38,0,0,1-1,1.71,19.53,19.53,0,0,0-3.88,5.35A6.09,6.09,0,0,0,2,16c-.19.66.29,1.12,1,1,.44-.09.88-.18,1.3-.31s.57,0,.67.35a6.73,6.73,0,0,0,4.24,4.5c4.12,1.56,8.93-.66,10-4.58.07-.27.17-.37.47-.27.46.14.93.24,1.4.35a.72.72,0,0,0,.92-.64,1.44,1.44,0,0,0-.16-.73"
+                    fill="currentColor"
+                  />
+                </svg>
+              </span>
+            </a>
+          </section>
+          <section class="run-choice" aria-labelledby="run-server-title">
+            <h3 id="run-server-title" class="run-choice-title">Own Server</h3>
+            <p class="run-choice-copy">
+              Designed for multi-user setups, including group management.
+            </p>
+            <svg class="run-choice-icon" viewBox="0 -960 960 960" aria-hidden="true">
+              <path d="M300-720q-25 0-42.5 17.5T240-660q0 25 17.5 42.5T300-600q25 0 42.5-17.5T360-660q0-25-17.5-42.5T300-720Zm0 400q-25 0-42.5 17.5T240-260q0 25 17.5 42.5T300-200q25 0 42.5-17.5T360-260q0-25-17.5-42.5T300-320ZM160-840h640q17 0 28.5 11.5T840-800v280q0 17-11.5 28.5T800-480H160q-17 0-28.5-11.5T120-520v-280q0-17 11.5-28.5T160-840Zm40 80v200h560v-200H200Zm-40 320h640q17 0 28.5 11.5T840-400v280q0 17-11.5 28.5T800-80H160q-17 0-28.5-11.5T120-120v-280q0-17 11.5-28.5T160-440Zm40 80v200h560v-200H200Zm0-400v200-200Zm0 400v200-200Z" fill="currentColor" />
+            </svg>
+            <a
+              class="run-action-link"
+              href="https://github.com/agent0ai/space-agent#host"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span class="run-action-label">See how to host Space Agent</span>
+            </a>
+          </section>
         </div>
       </section>
     </div>

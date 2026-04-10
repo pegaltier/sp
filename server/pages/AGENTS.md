@@ -49,7 +49,8 @@ Current public shell assets:
 - grants same-tab launcher access in `sessionStorage` after successful password sign-in so the tab that just authenticated can land on `/` while fresh tabs still route through `/enter`
 - renders the guest-account removal warning with yellow warning treatment and a recovery-safe inline Google Material Symbols warning icon, without depending on authenticated icon fonts
 - keeps the self-host call-to-action visually separated from the sign-in form even when guest account creation is disabled and the guest-only block is hidden
-- opens the self-host call-to-action as a simple login-styled modal with two recovery-safe inline-icon actions: a combined Mac/Windows/Linux download link to the `agent0ai/space-agent` latest-release redirect, and a server-hosting link to the README `#host` section
+- opens the self-host call-to-action as a two-panel login-styled modal: `Native App` and `Own Server` panels split left-right on desktop and stack top-bottom on mobile, with a privacy/security subtitle, one short explanatory line per panel, a large inline Material icon, and a local inline-icon action button
+- keeps the modal's outbound URLs as navigation only: the native app button links to the `agent0ai/space-agent` latest-release redirect, and the server-hosting button links to the README `#host` section
 - keeps the mobile shell scrollable when the viewport is shorter than the content, and reserves extra small-screen side spacing for the intro column rather than inflating the login card
 - keeps login-specific styling and motion local
 
@@ -73,6 +74,8 @@ Rules:
 - keep the mirrored public backdrop aligned with `_core/visual`
 - if the shared backdrop visuals or runtime behavior change, review and update these mirrored files in the same session
 - keep public-shell assets under `server/pages/res/` instead of embedding large data blobs into page HTML
+- server page shells must not load remote runtime resources; scripts, styles, fonts, images, icons, and recovery visuals must be local files or inline SVG/CSS so `/login`, `/enter`, `/`, and `/admin` can load without internet access
+- external `https://...` URLs in page shells are allowed only as explicit user navigation targets, never as required runtime assets
 
 ## Development Guidance
 

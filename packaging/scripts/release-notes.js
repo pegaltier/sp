@@ -78,7 +78,7 @@ function parseCliArgs(argv) {
 
     if (arg === "--previous-tag") {
       const value = argv[index + 1];
-      if (!value || value.startsWith("--")) {
+      if (value === undefined || value.startsWith("--")) {
         throw new Error("--previous-tag requires a value.");
       }
       options.previousTag = value;
