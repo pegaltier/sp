@@ -15,6 +15,7 @@ Current files:
 - `layout.js`: path normalization, entity-id normalization, logical-to-disk resolution for `L0`/`L1`/`L2`, and parser helpers for app, group, user, module, and extension paths
 - `layer_limit.js`: `maxLayer` parsing, normalization, and request-level resolution
 - `git_history.js`: optional per-owner local Git history scheduling, repository discovery, commit listing, rollback, and `.git` metadata shielding for writable `L1` and `L2`
+- `user_quota.js`: optional per-user `L2` folder size accounting, cached current-size reads, and quota projection checks for app-file mutations
 - `group_files.js`: normalized `L1/<group>/group.yaml` read and write helpers used by CLI-managed group editing; membership adds ensure the target writable group directory exists first
 - `group_index.js`: derived group membership and management graph from `group.yaml`
 - `overrides.js`: inheritance ranking, accessible module collection, and override selection
@@ -102,6 +103,8 @@ Rules:
 - frontend callers should derive writable roots from the canonical permission rules and the `user_self_info` identity fields instead of depending on a serialized scope payload
 - callers that need server-confirmed writable discovery may pass `access: "write"` or `writableOnly: true` to `file_list` or `file_paths`; repository pickers may add `gitRepositories: true` with a pattern such as `**/.git/` to receive writable owner roots like `L1/<group>/` and `L2/<user>/`
 - when `CUSTOMWARE_GIT_HISTORY` is enabled, writable `L1` and `L2` file mutations schedule debounced per-owner Git history commits
+- when `USER_FOLDER_SIZE_LIMIT_BYTES` is positive, `file_access.js` must check all app-file writes, copies, moves, and deletes through `user_quota.js` before mutation; projected growth over the cap is rejected, while a user folder already over cap may only perform mutations whose net `L2/<user>/` size delta is negative
+- user-folder quota accounting is cached per resolved `L2/<user>/` root and normal app-file mutations update that cache by byte deltas instead of rescanning the whole folder on every write; other backend app-path mutation callers invalidate the affected cache through `recordAppPathMutations`, and Git history commits, rollback, and revert also invalidate affected L2 quota cache entries because backend `.git` metadata can change outside the app-file mutation delta
 
 `module_manage.js` is the canonical entry point for:
 
@@ -109,6 +112,8 @@ Rules:
 - module metadata lookup
 - Git-backed installs and updates
 - module removal
+
+When `USER_FOLDER_SIZE_LIMIT_BYTES` is positive, first-time module installs into `L2/<user>/` must clone into a system temp directory first, measure that tree, and pass the quota projection before moving it into the user folder. Existing module updates still invalidate affected user quota cache entries after mutation because their final Git object growth is not known until the update completes.
 
 Current module-list areas are:
 

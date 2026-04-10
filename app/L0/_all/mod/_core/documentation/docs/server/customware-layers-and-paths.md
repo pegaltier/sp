@@ -7,6 +7,7 @@ This doc covers the layered filesystem model behind `/mod/...` and the app-file 
 - `server/lib/customware/AGENTS.md`
 - `server/lib/customware/layout.js`
 - `server/lib/customware/file_access.js`
+- `server/lib/customware/user_quota.js`
 - `server/lib/customware/group_files.js`
 - `server/lib/customware/git_history.js`
 - `server/lib/customware/module_inheritance.js`
@@ -44,6 +45,20 @@ Core rules:
 - `_admin` members may write any `L1` or `L2` path
 
 `file_access.js` is the canonical owner of these checks.
+
+## User Folder Quotas
+
+`USER_FOLDER_SIZE_LIMIT_BYTES` is an optional backend enforcement point for writable user roots.
+
+Current contract:
+
+- `0` disables quota checks
+- positive values cap each resolved `L2/<user>/` folder in bytes
+- app-file writes, copies, moves, and deletes are checked before mutation
+- projected growth over the cap is rejected
+- when a user folder is already over cap, only mutations that reduce that folder's net byte size are allowed
+- quota accounting is cached per resolved L2 owner root and updated by mutation deltas instead of rescanning on every write
+- other backend app-path mutation callers invalidate affected user quota cache entries through `recordAppPathMutations`, and Git history operations invalidate the affected cache when `.git` metadata may have changed
 
 ## Optional Git History
 

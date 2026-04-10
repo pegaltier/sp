@@ -44,7 +44,7 @@ function matchesTextRule(value, rule) {
 }
 
 function matchesNumberRule(value, rule, paramName) {
-  const normalizedRule = String(rule || "").trim();
+  const normalizedRule = String(rule ?? "").trim();
   if (!normalizedRule) {
     return false;
   }
@@ -106,7 +106,7 @@ function normalizeAllowed(rawAllowed, type) {
 
 function validateConfigValue(spec, rawValue) {
   if (spec.type === "number") {
-    const normalizedValue = String(rawValue || "").trim();
+    const normalizedValue = String(rawValue ?? "").trim();
     if (!NUMBER_PATTERN.test(normalizedValue)) {
       throw new Error(`${spec.name} expects a numeric value.`);
     }

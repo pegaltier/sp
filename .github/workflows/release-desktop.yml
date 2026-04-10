@@ -307,18 +307,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
         run: |
-          mapfile -d '' files < <(
-            find release-assets -type f \
-              ! -name '.DS_Store' \
-              ! -name 'builder-debug.yml' \
-              ! -name 'builder-effective-config.yaml' \
-              ! -path 'release-assets/windows-*/latest.yml' \
-              ! -path 'release-assets/macos-*/latest-mac.yml' \
-              -print0
+          files=()
+          while IFS= read -r -d '' filter; do
+            while IFS= read -r -d '' file; do
+              files+=("$file")
+            done < <(find release-assets -path "$filter" -type f -print0)
+          done < <(
+            ruby -ryaml -e '
+              config = YAML.safe_load(File.read("packaging/release-asset-filters.yaml"), aliases: false)
+              filters = config.fetch("release_upload_filters").map { |entry| entry.fetch("pattern") }
+              STDOUT.write(filters.join("\0"))
+              STDOUT.write("\0")
+            '
           )
+
           if [ "${#files[@]}" -eq 0 ]; then
-            echo "No desktop artifacts were downloaded for release upload." >&2
+            echo "No selected desktop release artifacts were found for upload." >&2
             exit 1
           fi
+
+          printf 'Selected desktop release artifacts:\n'
+          printf '%s\n' "${files[@]}"
 
           gh release upload "$RELEASE_TAG" "${files[@]}" --clobber

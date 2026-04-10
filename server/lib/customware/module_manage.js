@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { promises as fsPromises } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { cloneGitRepository, createGitClient } from "../git/client_create.js";
@@ -16,6 +17,12 @@ import {
   resolveProjectAbsolutePath
 } from "./layout.js";
 import { collectAccessibleModuleEntries } from "./overrides.js";
+import {
+  applyUserFolderQuotaPlan,
+  createUserFolderQuotaPlan,
+  invalidateUserFolderSizeCacheForProjectPaths,
+  readAbsolutePathSize
+} from "./user_quota.js";
 
 const DEFAULT_REMOTE = "origin";
 const DEFAULT_REMOTE_FETCH = "+refs/heads/*:refs/remotes/origin/*";
@@ -429,16 +436,29 @@ async function checkoutRequestedRevision(gitClient, options = {}) {
   return null;
 }
 
-async function installIntoNewPath(targetPathInfo, options = {}) {
-  const ownerRootProjectPath = `/app/${targetPathInfo.layer}/${targetPathInfo.ownerId}`;
-  const ownerRootAbsolutePath = createAbsolutePath(
-    options.projectRoot,
-    ownerRootProjectPath,
-    options.runtimeParams
-  );
+async function moveDirectoryIntoPlace(sourceAbsolutePath, destinationAbsolutePath) {
+  try {
+    await fsPromises.rename(sourceAbsolutePath, destinationAbsolutePath);
+  } catch (error) {
+    if (error?.code !== "EXDEV") {
+      throw error;
+    }
 
-  await fsPromises.mkdir(ownerRootAbsolutePath, { recursive: true });
-  const tempAbsolutePath = await fsPromises.mkdtemp(path.join(ownerRootAbsolutePath, ".module_install_"));
+    await fsPromises.cp(sourceAbsolutePath, destinationAbsolutePath, {
+      errorOnExist: true,
+      force: false,
+      recursive: true
+    });
+    await fsPromises.rm(sourceAbsolutePath, {
+      force: true,
+      recursive: true
+    });
+  }
+}
+
+async function installIntoNewPath(targetPathInfo, options = {}) {
+  const tempAbsolutePath = await fsPromises.mkdtemp(path.join(os.tmpdir(), "space-module-install-"));
+  let movedIntoPlace = false;
 
   try {
     await cloneGitRepository({
@@ -467,13 +487,29 @@ async function installIntoNewPath(targetPathInfo, options = {}) {
       });
     }
 
+    const quotaPlan = createUserFolderQuotaPlan(options, [
+      {
+        deltaBytes: readAbsolutePathSize(tempAbsolutePath),
+        projectPath: targetPathInfo.projectPath
+      }
+    ]);
+
     await fsPromises.mkdir(path.dirname(targetPathInfo.absolutePath), { recursive: true });
-    await fsPromises.rename(tempAbsolutePath, targetPathInfo.absolutePath);
+    try {
+      await moveDirectoryIntoPlace(tempAbsolutePath, targetPathInfo.absolutePath);
+      movedIntoPlace = true;
+    } catch (error) {
+      invalidateUserFolderSizeCacheForProjectPaths(options, [targetPathInfo.projectPath]);
+      throw error;
+    }
+    applyUserFolderQuotaPlan(quotaPlan);
   } catch (error) {
-    await fsPromises.rm(tempAbsolutePath, {
-      force: true,
-      recursive: true
-    });
+    if (!movedIntoPlace) {
+      await fsPromises.rm(tempAbsolutePath, {
+        force: true,
+        recursive: true
+      });
+    }
     throw error;
   }
 }

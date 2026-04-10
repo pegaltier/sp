@@ -100,6 +100,7 @@ Rules:
 - prefer light text and UI elements by default because widget content sits on a dark surface
 - use `space.utils.markdown.render(text, parent)` for markdown-heavy content
 - for remote HTTP data, use plain `fetch(...)` or `space.fetchExternal(...)`; do not hardcode third-party CORS proxy services in widget renderers because the runtime already falls back to `/api/proxy`
+- do not import required widget scripts, styles, fonts, or other non-data runtime assets from external CDNs in repo-owned widgets or bundled demo spaces; vendor required assets locally or use system/browser-native assets so offline app rendering still works
 - return a cleanup function when listeners, timers, or similar long-lived effects are attached
 - widget size is capped at `24x24`
 - choose only the footprint the widget needs

@@ -1,7 +1,6 @@
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { app, BrowserWindow, dialog } = require("electron");
-const { autoUpdater } = require("electron-updater");
+const { app, BrowserWindow, dialog, net } = require("electron");
 
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
 const SERVER_APP_PATH = path.join(PROJECT_ROOT, "server", "app.js");
@@ -12,6 +11,7 @@ let mainWindow;
 let isQuitting = false;
 let hasPromptedForDownloadedUpdate = false;
 let updateStatusClearTimer = null;
+let desktopAutoUpdater = null;
 
 function createDesktopRuntimeParamOverrides() {
   const overrides = {};
@@ -86,6 +86,36 @@ function shouldEnableDesktopAutoUpdate() {
   return app.isPackaged;
 }
 
+function loadDesktopAutoUpdater() {
+  if (desktopAutoUpdater) {
+    return desktopAutoUpdater;
+  }
+
+  try {
+    ({ autoUpdater: desktopAutoUpdater } = require("electron-updater"));
+  } catch (error) {
+    console.warn("Desktop auto-update is unavailable.");
+    console.warn(error && (error.stack || error.message || error));
+    desktopAutoUpdater = null;
+  }
+
+  return desktopAutoUpdater;
+}
+
+function isDesktopNetworkOnline() {
+  try {
+    return !net || typeof net.isOnline !== "function" || net.isOnline();
+  } catch (error) {
+    logDesktopUpdateError("Could not determine desktop network status.", error);
+    return true;
+  }
+}
+
+function logDesktopUpdateError(message, error) {
+  console.warn(message);
+  console.warn(error && (error.stack || error.message || error));
+}
+
 async function promptForDownloadedUpdate(info) {
   if (hasPromptedForDownloadedUpdate) {
     return;
@@ -113,13 +143,18 @@ async function promptForDownloadedUpdate(info) {
 
   if (response === 0) {
     setImmediate(() => {
-      autoUpdater.quitAndInstall();
+      desktopAutoUpdater?.quitAndInstall();
     });
   }
 }
 
 function configureDesktopAutoUpdate() {
   if (!shouldEnableDesktopAutoUpdate()) {
+    return;
+  }
+
+  const autoUpdater = loadDesktopAutoUpdater();
+  if (!autoUpdater) {
     return;
   }
 
@@ -144,8 +179,7 @@ function configureDesktopAutoUpdate() {
   });
 
   autoUpdater.on("error", (error) => {
-    console.warn("Desktop auto-update failed.");
-    console.warn(error && (error.stack || error.message || error));
+    logDesktopUpdateError("Desktop auto-update failed.", error);
     setDesktopUpdateStatus("Update check failed");
     clearUpdateStatusSoon(8000);
   });
@@ -164,16 +198,26 @@ function configureDesktopAutoUpdate() {
     console.log(`Desktop update downloaded: ${info.version}`);
     setDesktopUpdateStatus("Update ready to install");
     promptForDownloadedUpdate(info).catch((error) => {
-      console.warn("Could not show the restart prompt for the downloaded update.");
-      console.warn(error && (error.stack || error.message || error));
+      logDesktopUpdateError("Could not show the restart prompt for the downloaded update.", error);
     });
   });
 
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((error) => {
-      console.warn("Desktop auto-update check failed.");
-      console.warn(error && (error.stack || error.message || error));
-    });
+    if (!isDesktopNetworkOnline()) {
+      console.log("Skipping desktop update check while offline.");
+      return;
+    }
+
+    try {
+      const updateCheck = autoUpdater.checkForUpdates();
+      if (updateCheck && typeof updateCheck.catch === "function") {
+        updateCheck.catch((error) => {
+          logDesktopUpdateError("Desktop auto-update check failed.", error);
+        });
+      }
+    } catch (error) {
+      logDesktopUpdateError("Desktop auto-update check failed.", error);
+    }
   }, 10000);
 }
 

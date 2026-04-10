@@ -7,6 +7,7 @@ This doc covers the authenticated app-file endpoint family and the matching fron
 - `server/api/AGENTS.md`
 - `server/lib/customware/AGENTS.md`
 - `server/lib/customware/file_access.js`
+- `server/lib/customware/user_quota.js`
 - `app/L0/_all/mod/_core/framework/js/api-client.js`
 
 ## File Endpoint Family
@@ -77,6 +78,20 @@ Important shared rules:
 - batch operations validate all targets before mutation begins
 - single-path operations must keep working even when batch-only request fields are omitted
 - permission, overlap, path-normalization, and duplication logic belong in `file_access.js`, not endpoint-local code
+
+## User Folder Quotas
+
+`USER_FOLDER_SIZE_LIMIT_BYTES` optionally caps each on-disk `L2/<user>/` folder.
+
+Current behavior:
+
+- `0` disables the cap
+- positive values are byte limits
+- `file_write`, `file_copy`, `file_move`, `file_delete`, and module removal through `file_access.js` check projected quota impact before mutation
+- if a user folder is at or below the limit, projected growth over the limit is rejected with `413`
+- if a user folder is already over the limit, only mutations with a negative net size delta for that folder are allowed
+- quota checks use cached per-user folder totals and per-operation deltas, so normal writes do not rescan the entire `L2/<user>/` tree
+- other backend app-path mutation callers invalidate affected L2 cache entries through `recordAppPathMutations`, and Git history commits, rollback, and revert also invalidate affected entries because backend `.git` metadata can change outside the app-file mutation delta
 
 ## `file_paths`
 

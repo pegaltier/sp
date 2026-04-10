@@ -13,6 +13,12 @@ import {
   parseAppProjectPath,
   resolveProjectAbsolutePath
 } from "./layout.js";
+import {
+  applyUserFolderQuotaPlan,
+  createUserFolderQuotaPlan,
+  invalidateUserFolderSizeCacheForProjectPaths,
+  readAbsolutePathSize
+} from "./user_quota.js";
 import { createEmptyGroupIndex } from "./overrides.js";
 import { globToRegExp, normalizePathSegment } from "../utils/app_files.js";
 
@@ -398,6 +404,75 @@ function createAbsolutePath(projectRoot, projectPath, runtimeParams) {
   return resolveProjectAbsolutePath(projectRoot, projectPath, runtimeParams);
 }
 
+function createQuotaPlan(options = {}, deltas = []) {
+  return createUserFolderQuotaPlan(
+    {
+      projectRoot: options.projectRoot,
+      runtimeParams: options.runtimeParams
+    },
+    deltas
+  );
+}
+
+function invalidateQuotaDeltas(options = {}, deltas = []) {
+  invalidateUserFolderSizeCacheForProjectPaths(
+    {
+      projectRoot: options.projectRoot,
+      runtimeParams: options.runtimeParams
+    },
+    deltas.map((delta) => delta.projectPath)
+  );
+}
+
+function getWriteQuotaDeltas(requests) {
+  return requests.map((request) => ({
+    deltaBytes: request.isDirectory
+      ? 0
+      : request.buffer.length - readAbsolutePathSize(request.absolutePath),
+    projectPath: request.projectPath
+  }));
+}
+
+function getCopyQuotaDeltas(requests) {
+  return requests.map((request) => ({
+    deltaBytes: readAbsolutePathSize(request.sourceAbsolutePath),
+    projectPath: request.destinationProjectPath
+  }));
+}
+
+function getMoveQuotaDeltas(requests) {
+  return requests.flatMap((request) => {
+    const movedBytes = readAbsolutePathSize(request.sourceAbsolutePath);
+
+    if (request.sourceProjectPath === request.destinationProjectPath) {
+      return [
+        {
+          deltaBytes: 0,
+          projectPath: request.sourceProjectPath
+        }
+      ];
+    }
+
+    return [
+      {
+        deltaBytes: -movedBytes,
+        projectPath: request.sourceProjectPath
+      },
+      {
+        deltaBytes: movedBytes,
+        projectPath: request.destinationProjectPath
+      }
+    ];
+  });
+}
+
+function getDeleteQuotaDeltas(requests) {
+  return requests.map((request) => ({
+    deltaBytes: -readAbsolutePathSize(request.absolutePath),
+    projectPath: request.projectPath
+  }));
+}
+
 function getParentDirectoryProjectPath(projectPath) {
   const normalizedProjectPath = stripTrailingSlash(String(projectPath || ""));
 
@@ -691,30 +766,43 @@ function normalizeWriteRequests(options = {}) {
 
 function writeAppFiles(options = {}) {
   const requests = normalizeWriteRequests(options);
+  const quotaDeltas = getWriteQuotaDeltas(requests);
+  const quotaPlan = createQuotaPlan(options, quotaDeltas);
   let totalBytesWritten = 0;
-  const files = requests.map((request) => {
-    if (request.isDirectory) {
-      fs.mkdirSync(request.absolutePath, { recursive: true });
+
+  let files;
+
+  try {
+    files = requests.map((request) => {
+      if (request.isDirectory) {
+        fs.mkdirSync(request.absolutePath, { recursive: true });
+
+        return {
+          path: request.path
+        };
+      }
+
+      fs.mkdirSync(path.dirname(request.absolutePath), { recursive: true });
+      fs.writeFileSync(request.absolutePath, request.buffer);
+      totalBytesWritten += request.buffer.length;
 
       return {
+        bytesWritten: request.buffer.length,
+        encoding: request.encoding,
         path: request.path
       };
-    }
+    });
+  } catch (error) {
+    invalidateQuotaDeltas(options, quotaDeltas);
+    throw error;
+  }
 
-    fs.mkdirSync(path.dirname(request.absolutePath), { recursive: true });
-    fs.writeFileSync(request.absolutePath, request.buffer);
-    totalBytesWritten += request.buffer.length;
-
-    return {
-      bytesWritten: request.buffer.length,
-      encoding: request.encoding,
-      path: request.path
-    };
-  });
+  applyUserFolderQuotaPlan(quotaPlan);
 
   recordAppPathMutations(
     {
       projectRoot: options.projectRoot,
+      quotaCacheUpdated: true,
       runtimeParams: options.runtimeParams
     },
     requests.map((request) => request.projectPath)
@@ -908,18 +996,30 @@ function moveAbsolutePath(sourceAbsolutePath, destinationAbsolutePath, isDirecto
 
 function copyAppPaths(options = {}) {
   const requests = normalizeTransferRequests(options, "copy");
-  const entries = requests.map((request) => {
-    copyAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory);
+  const quotaDeltas = getCopyQuotaDeltas(requests);
+  const quotaPlan = createQuotaPlan(options, quotaDeltas);
+  let entries;
 
-    return {
-      fromPath: request.fromPath,
-      toPath: request.toPath
-    };
-  });
+  try {
+    entries = requests.map((request) => {
+      copyAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory);
+
+      return {
+        fromPath: request.fromPath,
+        toPath: request.toPath
+      };
+    });
+  } catch (error) {
+    invalidateQuotaDeltas(options, quotaDeltas);
+    throw error;
+  }
+
+  applyUserFolderQuotaPlan(quotaPlan);
 
   recordAppPathMutations(
     {
       projectRoot: options.projectRoot,
+      quotaCacheUpdated: true,
       runtimeParams: options.runtimeParams
     },
     requests.map((request) => request.destinationProjectPath)
@@ -937,18 +1037,30 @@ function copyAppPath(options = {}) {
 
 function moveAppPaths(options = {}) {
   const requests = normalizeTransferRequests(options, "move");
-  const entries = requests.map((request) => {
-    moveAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory);
+  const quotaDeltas = getMoveQuotaDeltas(requests);
+  const quotaPlan = createQuotaPlan(options, quotaDeltas);
+  let entries;
 
-    return {
-      fromPath: request.fromPath,
-      toPath: request.toPath
-    };
-  });
+  try {
+    entries = requests.map((request) => {
+      moveAbsolutePath(request.sourceAbsolutePath, request.destinationAbsolutePath, request.isDirectory);
+
+      return {
+        fromPath: request.fromPath,
+        toPath: request.toPath
+      };
+    });
+  } catch (error) {
+    invalidateQuotaDeltas(options, quotaDeltas);
+    throw error;
+  }
+
+  applyUserFolderQuotaPlan(quotaPlan);
 
   recordAppPathMutations(
     {
       projectRoot: options.projectRoot,
+      quotaCacheUpdated: true,
       runtimeParams: options.runtimeParams
     },
     requests.flatMap((request) => [request.sourceProjectPath, request.destinationProjectPath])
@@ -1043,17 +1155,29 @@ function normalizeDeleteRequests(options = {}) {
 
 function deleteAppPaths(options = {}) {
   const requests = normalizeDeleteRequests(options);
-  const paths = requests.map((request) => {
-    fs.rmSync(request.absolutePath, {
-      force: false,
-      recursive: request.isDirectory
+  const quotaDeltas = getDeleteQuotaDeltas(requests);
+  const quotaPlan = createQuotaPlan(options, quotaDeltas);
+  let paths;
+
+  try {
+    paths = requests.map((request) => {
+      fs.rmSync(request.absolutePath, {
+        force: false,
+        recursive: request.isDirectory
+      });
+      return request.path;
     });
-    return request.path;
-  });
+  } catch (error) {
+    invalidateQuotaDeltas(options, quotaDeltas);
+    throw error;
+  }
+
+  applyUserFolderQuotaPlan(quotaPlan);
 
   recordAppPathMutations(
     {
       projectRoot: options.projectRoot,
+      quotaCacheUpdated: true,
       runtimeParams: options.runtimeParams
     },
     requests.map((request) => request.projectPath)

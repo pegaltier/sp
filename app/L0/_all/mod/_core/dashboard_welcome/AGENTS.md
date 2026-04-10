@@ -35,6 +35,7 @@ Current persistence and demo-space contract:
 - each bundled example folder should own its card metadata in `space.yaml`, including `title`, `description`, `icon`, and `icon_color`
 - bundled example card copy should stay concise and polished: use clean title casing for titles and short sentence-case descriptions that read naturally in the welcome cards
 - bundled demo widgets that fetch remote data should use runtime-managed `fetch(...)` or `space.fetchExternal(...)`; do not hardcode third-party CORS proxy services inside example widgets because the frontend runtime already falls back to `/api/proxy`
+- bundled demo widgets must not import required scripts, styles, fonts, or other non-data runtime assets from external CDNs; vendor required assets locally or use system/browser-native assets so installing a demo space does not make framework rendering depend on the internet
 - the Daily Dashboard example should keep its news column at `5x9` so it aligns with the stacked weather and crypto widgets, and its crypto widget should track Bitcoin, Ethereum, and Solana
 - bundled demo `space.yaml` files should own the icon and color shown in the welcome cards, and installing a demo should preserve those values into the created user space
 - welcome actions should call the public `space.spaces.installExampleSpace(...)` runtime helper rather than duplicating filesystem logic locally

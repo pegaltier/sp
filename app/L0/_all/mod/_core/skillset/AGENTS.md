@@ -13,13 +13,14 @@ Documentation is top priority for this module. After any change under `_core/ski
 This module owns:
 
 - `screenshots.js`: browser screenshot helpers, lazy `html2canvas` loading, and the exported screenshot wrapper API
+- `vendor/html2canvas.min.js` and `vendor/html2canvas.LICENSE`: vendored `html2canvas@1.4.1` browser bundle and license used by the screenshot helper
 - `ext/skills/screenshots/SKILL.md`: the top-level onscreen skill for page or element screenshots
 
 ## Skill Helper Contract
 
 - helper files in this module must stay importable through stable `/mod/_core/skillset/...` paths from skill instructions
 - `screenshots.js` is browser-only and should keep its public API small and explicit
-- `screenshots.js` currently lazy-loads `html2canvas@1.4.1` from jsDelivr on first use and reuses the loaded global afterward
+- `screenshots.js` lazy-loads the module-local vendored `html2canvas@1.4.1` bundle from `/mod/_core/skillset/vendor/html2canvas.min.js` on first use and reuses the loaded global afterward
 - `takeScreenshot(options)` captures `document.body` by default, applies full-page-friendly defaults for body screenshots, and returns `{ canvas, blob, width, height, type, filename }`
 - `screenshotBase64(options)` returns `{ base64, width, height, type, filename }`
 - `screenshotDownload(filenameOrOptions, maybeOptions)` downloads the captured image and returns `{ downloaded: true, filename, width, height, type }`

@@ -7,12 +7,11 @@ renderer: |
   
       const style = document.createElement("style");
       style.textContent = [
-        "@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');",
         "@keyframes rglow { 0%,100% { text-shadow: 0 0 3px #ff0, 0 0 6px #ff6600; } 50% { text-shadow: 0 0 5px #ff0, 0 0 10px #ff6600; } }",
         "@keyframes rflicker { 0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:0.7} 94%{opacity:1} 96%{opacity:0.5} 97%{opacity:1} }",
         "@keyframes rslide { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }",
-        ".rmslide { display:inline-block; white-space:nowrap; font-family:'Press Start 2P',monospace; font-size:36px; color:#ffff00; letter-spacing:3px; animation: rslide 8s linear 1 forwards, rglow 1.5s ease-in-out infinite, rflicker 4s step-end infinite; }",
-        ".rmstatic { display:block; white-space:nowrap; font-family:'Press Start 2P',monospace; color:#ffff00; letter-spacing:2px; animation: rglow 1.5s ease-in-out infinite, rflicker 4s step-end infinite; text-align:center; }",
+        ".rmslide { display:inline-block; white-space:nowrap; font-family:'Courier New',Consolas,monospace; font-weight:800; font-size:36px; color:#ffff00; letter-spacing:3px; animation: rslide 8s linear 1 forwards, rglow 1.5s ease-in-out infinite, rflicker 4s step-end infinite; }",
+        ".rmstatic { display:block; white-space:nowrap; font-family:'Courier New',Consolas,monospace; font-weight:800; color:#ffff00; letter-spacing:2px; animation: rglow 1.5s ease-in-out infinite, rflicker 4s step-end infinite; text-align:center; }",
         ".rscanlines { position:absolute; inset:0; background:repeating-linear-gradient(to bottom,transparent 0px,transparent 3px,rgba(0,0,0,0.2) 3px,rgba(0,0,0,0.2) 4px); pointer-events:none; z-index:2; }"
       ].join("\n");
       parent.appendChild(style);

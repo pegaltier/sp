@@ -36,3 +36,9 @@ CUSTOMWARE_GIT_HISTORY:
   allowed: [true, false]
   default: true
   frontend_exposed: false
+USER_FOLDER_SIZE_LIMIT_BYTES:
+  description: Maximum on-disk size in bytes for each L2 user folder. Set to 0 to disable the limit.
+  type: number
+  allowed: [0..9007199254740991]
+  default: 0
+  frontend_exposed: false

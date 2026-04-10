@@ -30,6 +30,7 @@ Important shell facts:
 - `/login` and `/enter` are special recovery-safe shells that do not depend on authenticated `/mod/...` assets
 - same-origin `/` and `/admin` URLs opened from framework-backed pages through normal `target="_blank"` link clicks or `window.open(..., "_blank")` receive the current tab's `/enter` access marker before navigation; manual browser opens are left to the `/enter` guard
 - authenticated framework-backed shells load `_core/framework/css/index.css`, which sets an app-wide border-box sizing baseline so reusable module cards, rows, and form controls do not overflow merely because they combine `width: 100%` with padding or borders
+- first-party framework, shell, skill-helper, and bundled demo assets required for normal app use must be local `/mod/...` files, server page assets, or inline code rather than CDN scripts, styles, fonts, images, or other remote runtime assets
 
 ## Layer Model
 
@@ -81,6 +82,8 @@ Important namespaces:
 The runtime is window-local. It must not be published into `parent`, `top`, or sibling frames.
 
 For external HTTP reads, frontend code should use plain `fetch(externalUrl)` or `space.fetchExternal(externalUrl)`. The runtime already retries blocked cross-origin requests through `/api/proxy` and caches successful fallback origins in memory, so repo-owned frontend code and widgets should not hardcode third-party CORS proxy services.
+
+Online-by-nature features such as API LLM providers, browser model downloads, external embeds, market or weather widgets, feeds, and user-authored remote fetches may still require internet access. Those failures should stay scoped to the feature or widget that requested the network, not framework boot or page-shell rendering.
 
 ## Identity And Writable Roots
 

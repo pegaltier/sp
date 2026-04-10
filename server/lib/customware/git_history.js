@@ -14,6 +14,7 @@ import {
   parseAppProjectPath,
   resolveProjectAbsolutePath
 } from "./layout.js";
+import { invalidateUserFolderSizeCacheForProjectPaths } from "./user_quota.js";
 
 const GIT_HISTORY_PARAM = "CUSTOMWARE_GIT_HISTORY";
 const DEFAULT_COMMIT_DEBOUNCE_MS = 10_000;
@@ -454,22 +455,32 @@ function restoreIgnoredPathSnapshots(snapshots) {
 }
 
 async function commitLayerHistoryTarget(target) {
-  ensureHistoryIgnoreFile(target);
+  try {
+    ensureHistoryIgnoreFile(target);
 
-  const client = await createLocalGitHistoryClient({
-    repoRoot: target.repoRoot
-  });
-  const result = await client.commitAll({
-    authorEmail: DEFAULT_AUTHOR_EMAIL,
-    authorName: DEFAULT_AUTHOR_NAME,
-    ignoredPaths: getHistoryIgnoredPaths(target),
-    message: getHistoryCommitMessage(target)
-  });
+    const client = await createLocalGitHistoryClient({
+      repoRoot: target.repoRoot
+    });
+    const result = await client.commitAll({
+      authorEmail: DEFAULT_AUTHOR_EMAIL,
+      authorName: DEFAULT_AUTHOR_NAME,
+      ignoredPaths: getHistoryIgnoredPaths(target),
+      message: getHistoryCommitMessage(target)
+    });
 
-  return {
-    ...result,
-    path: target.appPath
-  };
+    return {
+      ...result,
+      path: target.appPath
+    };
+  } finally {
+    invalidateUserFolderSizeCacheForProjectPaths(
+      {
+        projectRoot: target.projectRoot,
+        runtimeParams: target.runtimeParams
+      },
+      [target.ownerProjectPath]
+    );
+  }
 }
 
 function scheduleLayerHistoryTarget(target, options = {}) {
@@ -516,6 +527,16 @@ function scheduleLayerHistoryTarget(target, options = {}) {
 }
 
 function recordAppPathMutations(options = {}, projectPaths = []) {
+  if (!options.quotaCacheUpdated) {
+    invalidateUserFolderSizeCacheForProjectPaths(
+      {
+        projectRoot: options.projectRoot,
+        runtimeParams: options.runtimeParams
+      },
+      projectPaths
+    );
+  }
+
   if (suppressionDepth > 0 || !isCustomwareGitHistoryEnabled(options.runtimeParams)) {
     return [];
   }
@@ -719,6 +740,13 @@ async function rollbackLayerHistory(options = {}) {
       ensureHistoryIgnoreFile(target);
     }
   });
+  invalidateUserFolderSizeCacheForProjectPaths(
+    {
+      projectRoot: target.projectRoot,
+      runtimeParams: target.runtimeParams
+    },
+    [target.ownerProjectPath]
+  );
 
   return {
     ...result,
@@ -760,6 +788,13 @@ async function revertLayerHistoryCommit(options = {}) {
       ensureHistoryIgnoreFile(target);
     }
   });
+  invalidateUserFolderSizeCacheForProjectPaths(
+    {
+      projectRoot: target.projectRoot,
+      runtimeParams: target.runtimeParams
+    },
+    [target.ownerProjectPath]
+  );
 
   return {
     ...result,

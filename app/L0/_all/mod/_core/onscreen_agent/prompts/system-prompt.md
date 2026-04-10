@@ -191,23 +191,8 @@ return { tempC: c.temp_C, feelsLikeC: c.FeelsLikeC, humidity: c.humidity, desc: 
 
 Taking a screenshot of the current page now...
 _____javascript
-const html2canvasSrc = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"
-if (!window.html2canvas) {
-  await new Promise((resolve, reject) => {
-    const s = document.createElement("script")
-    s.src = html2canvasSrc
-    s.onload = resolve
-    s.onerror = reject
-    document.head.appendChild(s)
-  })
-}
-const canvas = await window.html2canvas(document.body)
-const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"))
-const a = document.createElement("a")
-a.href = URL.createObjectURL(blob)
-a.download = `screenshot-${Date.now()}.png`
-a.click()
-return "Screenshot captured and download triggered"
+const screenshots = await import("/mod/_core/skillset/screenshots.js")
+return await screenshots.screenshotDownload(`screenshot-${Date.now()}.png`)
 
 rules
 - selective edit on unseen source may not write in the first turn

@@ -62,6 +62,7 @@ Current rules:
 - `file_list` and `file_paths` accept `access: "write"` or `writableOnly: true` when callers need only writable app paths instead of the default readable path set
 - `file_list` and `file_paths` accept `gitRepositories: true`; with patterns such as `**/.git/`, `file_paths` returns matching local-history owner roots like `L1/<group>/` or `L2/<user>/` while keeping `.git` metadata reserved and hidden
 - batch operations validate all targets before any mutation begins
+- when `USER_FOLDER_SIZE_LIMIT_BYTES` is positive, `file_write`, `file_copy`, `file_move`, `file_delete`, and module removal through `file_access.js` enforce the per-`L2/<user>/` folder quota before mutation; quota errors return `413`
 - single-file or single-folder copy and move requests must keep working when request plumbing omits `entries`; only real batch calls should forward an `entries` array to the shared helper
 - endpoint-specific validation should stay thin and reuse the shared helper contract
 - `folder_download` supports `HEAD` for permission-only validation and `GET` or `POST` for the actual streamed ZIP response
@@ -84,6 +85,7 @@ Current rules:
 
 - these endpoints delegate to `server/lib/customware/module_manage.js`
 - writable operations must reuse the shared permission model and refresh the watchdog after mutation
+- when `USER_FOLDER_SIZE_LIMIT_BYTES` is positive, new `module_install` writes into `L2/<user>/` are measured in a system temp directory and quota-checked before the module tree is moved into the user folder
 
 Runtime and identity endpoints:
 

@@ -1,6 +1,6 @@
 const DEFAULT_FILENAME = "page-content.png";
 const DEFAULT_TYPE = "image/png";
-const HTML2CANVAS_SRC = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
+const HTML2CANVAS_SRC = "/mod/_core/skillset/vendor/html2canvas.min.js";
 
 let html2canvasPromise = null;
 

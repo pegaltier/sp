@@ -40,6 +40,7 @@ Important behaviors:
 
 - module writes must reuse shared permission rules
 - module writes should refresh the watchdog afterward
+- when `USER_FOLDER_SIZE_LIMIT_BYTES` is positive, new L2 module installs are cloned into a system temp directory, measured, and quota-checked before they are moved into `L2/<user>/mod/...`
 - module list surfaces distinguish areas such as `l1`, `l2_self`, `l2_user`, and `l2_users`
 - cross-user or aggregated user-layer module listings are admin-only
 
