@@ -56,6 +56,10 @@
   flex: 0 0 auto;
 }
 
+.spaces-config-action-label {
+  white-space: nowrap;
+}
+
 .spaces-config-toggle-copy {
   min-width: 0;
   display: grid;

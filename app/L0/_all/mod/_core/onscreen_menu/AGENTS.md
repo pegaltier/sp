@@ -30,11 +30,11 @@ Current behavior:
 - the Home button is always visible on the right side of the bar beside the menu button
 - the Home button routes to the empty router path `#/` so the router's default-route contract, currently Dashboard, decides the actual home screen
 - `_core/onscreen_menu/bar_start` renders on the left side of the header bar for shell-level buttons or icons
-- route-owned `x-teleport` content may target the existing left-side `[id="_core/onscreen_menu/bar_start"]` container when a feature needs ephemeral controls that should be destroyed with the route instead of staying mounted as a shell extension
-- a routed feature may teleport one local wrapper into `[id="_core/onscreen_menu/bar_start"]` and expose additional feature-owned seams inside that wrapper; `_core/dashboard` uses that pattern for dashboard-only topbar controls so the shell still stays route-agnostic
+- route-owned `x-inject` content may target the existing left-side `[id="_core/onscreen_menu/bar_start"]` container when a feature needs ephemeral controls that should be destroyed with the route instead of staying mounted as a shell extension, and when that header target may not exist yet at the moment the route boots
+- a routed feature may inject one local wrapper into `[id="_core/onscreen_menu/bar_start"]` and expose additional feature-owned seams inside that wrapper; `_core/dashboard` uses that pattern for dashboard-only topbar controls so the shell still stays route-agnostic
 - `_core/onscreen_menu/bar_end` renders on the right side of the header bar before Home for shell-level buttons or icons
 - `_core/onscreen_menu/bar_start` and `_core/onscreen_menu/bar_end` both sort contributed extension wrappers by the first descendant `data-order` or `order` value they find
-- header-bar extensions should render shared `space-topbar-button` controls when they want to match the shell chrome, but route-owned teleported controls should usually stay visually bare against the bar itself instead of adding extra per-button borders or backgrounds
+- header-bar extensions should render shared `space-topbar-button` controls when they want to match the shell chrome, but route-owned injected controls should usually stay visually bare against the bar itself instead of adding extra per-button borders or backgrounds
 - `_core/onscreen_menu/items` is rendered inside the menu panel before the local auth exit action
 - item adapters should be thin HTML extension files that render shared `space-topbar-menu-action` buttons
 - item buttons should set numeric `data-order` values, usually spaced by hundreds, because the menu shell sorts contributed extension wrappers by the first descendant `data-order` or `order` value it finds
@@ -54,8 +54,8 @@ Current behavior:
 - prefer shared topbar and menu styles from `_core/visual/chrome/topbar.css`
 - keep Home pointed at the empty route instead of hardcoding `#/dashboard`, so the router can change its default home without menu changes
 - add shell-level header buttons from the owning feature module through `_core/onscreen_menu/bar_start` or `_core/onscreen_menu/bar_end` instead of hardcoding them in `menu.html`
-- add route-owned, ephemeral header controls by teleporting into `[id="_core/onscreen_menu/bar_start"]` from the owning route, not by mounting a persistent shell extension and hiding it with route checks
-- when one routed page needs multiple independently owned header buttons, keep the teleported wrapper route-owned and let that route expose local seams inside it rather than teaching `menu.html` about feature-specific controls
+- add route-owned, ephemeral header controls by injecting into `[id="_core/onscreen_menu/bar_start"]` with `x-inject` from the owning route, not by mounting a persistent shell extension and hiding it with route checks
+- when one routed page needs multiple independently owned header buttons, keep the injected wrapper route-owned and let that route expose local seams inside it rather than teaching `menu.html` about feature-specific controls
 - add feature menu entries from the owning feature module through `_core/onscreen_menu/items` instead of hardcoding them in `menu.html`
 - pick `data-order` values with gaps so downstream modules can insert actions between first-party items without replacing them
-- if the header seams, route teleport target behavior, item seam, router shell seam, route helper behavior, or auth exit behavior changes, update this file and any owning feature docs that rely on that contract
+- if the header seams, route inject target behavior, item seam, router shell seam, route helper behavior, or auth exit behavior changes, update this file and any owning feature docs that rely on that contract

@@ -9,7 +9,7 @@
     <div x-data class="spaces-view-root">
       <x-skill-context :tags="$store.spacesPage?.hasCurrentSpace ? 'space:open' : ''"></x-skill-context>
       <template x-if="$store.spacesPage?.hasCurrentSpace">
-        <template x-teleport='[id="_core/onscreen_menu/bar_start"]'>
+        <template x-inject='[id="_core/onscreen_menu/bar_start"]'>
           <div
             x-cloak
             data-order="100"
@@ -60,12 +60,18 @@
               x-cloak
               x-show="$store.spacesPage.currentSpace?.widgetIds?.length"
               type="button"
-              class="space-topbar-button space-topbar-button--icon spaces-config-action"
+              class="space-topbar-button spaces-config-action"
+              :class="{ 'space-topbar-button--icon': !$store.spacesPage.currentSpaceHasOnlyExampleWidgets }"
               :aria-label="$store.spacesPage.currentSpaceClearAllWidgetsLabel"
               :title="$store.spacesPage.currentSpaceClearAllWidgetsLabel"
               @click="void $store.spacesPage.clearCurrentSpaceWidgets()"
             >
-              <x-icon>delete_sweep</x-icon>
+              <span
+                x-show="$store.spacesPage.currentSpaceHasOnlyExampleWidgets"
+                class="spaces-config-action-label"
+                x-text="$store.spacesPage.currentSpaceClearAllWidgetsLabel"
+              ></span>
+              <x-icon x-text="$store.spacesPage.currentSpaceClearAllWidgetsIcon"></x-icon>
             </button>
 
             <template x-teleport="body">

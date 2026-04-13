@@ -71,6 +71,7 @@ Current contract:
 - each writable `L1/<group>/` and `L2/<user>/` root is its own local Git repository when history is enabled
 - mutations schedule a commit after 10 seconds of quiet for that owner root
 - in clustered runtime, workers do not keep their own debounced Git commit timers; they publish changed logical paths once, and the primary schedules the owner-root commit after rebuilding the authoritative indexes for that change
+- the native local-history backend runs Git asynchronously and serializes operations per owner repository, so debounced commits and other history actions for one root never overlap and do not block the request path while the subprocess runs
 - if an owner root keeps receiving writes, the debounce drops to 5 seconds after 1 minute of waiting, 1 second after 5 minutes, and immediate commit after 10 minutes
 - pending commits are flushed during server shutdown
 - history listing is paginated with `limit` and `offset`, may filter by changed file path or nested filename substring, and returns metadata plus full per-commit file action entries for listed commits without loading full diffs

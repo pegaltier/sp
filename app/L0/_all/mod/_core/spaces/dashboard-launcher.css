@@ -7,17 +7,6 @@
   gap: 1.15rem;
 }
 
-.dashboard-spaces-launcher-header {
-  display: grid;
-  gap: 0.25rem;
-}
-
-.dashboard-spaces-launcher-header h2 {
-  margin: 0.35rem 0 0;
-  font-size: clamp(1.3rem, 2vw, 1.65rem);
-  letter-spacing: -0.03em;
-}
-
 .dashboard-spaces-launcher-grid {
   --dashboard-space-grid-base-gap: 1rem;
   --dashboard-space-grid-columns: 1;

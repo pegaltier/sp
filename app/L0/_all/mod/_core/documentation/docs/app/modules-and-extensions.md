@@ -70,6 +70,7 @@ Resolution rules:
 - matching files live under `mod/<author>/<repo>/ext/html/some/path/*.html`
 - extension files should stay thin and normally mount the real component or view
 - `_core/framework` also injects `_core/framework/head/end` into `document.head` during bootstrap so layers can add declarative head-side tags or inline bootstraps without editing page shells
+- `_core/framework` also registers `x-inject="selector"` during bootstrap; it mirrors Alpine `x-teleport` for `<template>` roots, waits for the selector when the target seam is not mounted yet, and tears down that wait when the source template unmounts
 - dynamic extension and component discovery watches the whole document tree, so seams and components inserted under `head` are hydrated the same way as body-mounted ones
 
 Important shared router seams include:
@@ -83,14 +84,21 @@ Important shared router seams include:
 
 The authenticated router backdrop comes from `_core/visual` and stays on fixed viewport layers behind the routed shell, so route-content scrolling should happen inside `.router-stage` without moving the shared canvas gradient or starfield.
 
+Normal routed pages also inherit two router-owned shell clearances outside their own content box:
+
+- a fixed top inset through `--router-shell-start-clearance`, which keeps normal routes below the fixed shell chrome
+- a shared bottom overscroll allowance through `--router-shell-end-overscroll`, currently `15em`, which appends scrollable space after the routed content so bottom controls are less likely to sit under the onscreen chat overlay
+
+Full-bleed routes that own their own height and overflow rules, such as `_core/spaces`, should explicitly opt out of those shell-owned end clearances in router-owned CSS rather than locally fighting them inside the feature module.
+
 Current first-party shell extension example:
 
-- `_core/onscreen_menu` mounts into `_core/router/shell_start`, owns the viewport-fixed centered routed header bar, keeps `_core/onscreen_menu/bar_start` on the left and `_core/onscreen_menu/bar_end` on the right for shell-level controls, allows route-owned teleported controls to target the existing `[id="_core/onscreen_menu/bar_start"]` container, keeps a Home button that routes to the empty default route `#/`, exposes `_core/onscreen_menu/items` for feature-owned dropdown menu buttons, sorts contributed controls or items by numeric `data-order`, renders only the auth-dependent Logout or Leave action locally after the dropdown seam, and styles the shell as a compact glass bar that stays flush to the top edge with only the bottom corners rounded while normal routed pages clear it through the router-owned top inset
-- route-owned teleported controls in that left header container should generally inherit the bar's overall chrome and avoid adding their own nested button borders or filled backgrounds unless a feature has a strong reason to call out one control
-- `_core/dashboard` now defines one route-owned teleported wrapper in that same left header container and exposes ordered `_core/dashboard/topbar_primary` and `_core/dashboard/topbar_secondary` seams inside it, so dashboard-only controls such as the spaces create action or the welcome restore toggle stay route-scoped without teaching `_core/onscreen_menu` about dashboard features
+- `_core/onscreen_menu` mounts into `_core/router/shell_start`, owns the viewport-fixed centered routed header bar, keeps `_core/onscreen_menu/bar_start` on the left and `_core/onscreen_menu/bar_end` on the right for shell-level controls, allows route-owned controls injected through `x-inject` to target the existing `[id="_core/onscreen_menu/bar_start"]` container even when that header seam mounts after the route view, keeps a Home button that routes to the empty default route `#/`, exposes `_core/onscreen_menu/items` for feature-owned dropdown menu buttons, sorts contributed controls or items by numeric `data-order`, renders only the auth-dependent Logout or Leave action locally after the dropdown seam, and styles the shell as a compact glass bar that stays flush to the top edge with only the bottom corners rounded while normal routed pages clear it through the router-owned top inset
+- route-owned injected controls in that left header container should generally inherit the bar's overall chrome and avoid adding their own nested button borders or filled backgrounds unless a feature has a strong reason to call out one control
+- `_core/dashboard` now defines one route-owned injected wrapper in that same left header container and exposes ordered `_core/dashboard/topbar_primary` and `_core/dashboard/topbar_secondary` seams inside it, so dashboard-only controls such as the spaces create action or the welcome restore toggle stay route-scoped without teaching `_core/onscreen_menu` about dashboard features
 - `_core/agent`, `_core/file_explorer`, `_core/time_travel`, and `_core/admin` each contribute their own routed header-menu dropdown item through `_core/onscreen_menu/items` with `data-order` values `100`, `200`, `300`, and `400` instead of being hardcoded into the menu shell
-- `_core/spaces` now defines its current-space control cluster directly inside the spaces route and teleports it into `[id="_core/onscreen_menu/bar_start"]`; that keeps the controls route-owned so they are removed when the route unmounts, while still keeping Back, the space-title toggle, Rearrange, and a confirmed clear-all-widgets trash action together in shared shell chrome, with the metadata editor popover anchored to the title button instead of owning a separate fixed page overlay
-- `_core/time_travel` keeps its page title copy inside the routed page but teleports its route-owned Refresh and repository-picker controls into `[id="_core/onscreen_menu/bar_start"]`, keeping those controls in shared shell chrome without turning them into persistent shell extensions
+- `_core/spaces` now defines its current-space control cluster directly inside the spaces route and injects it into `[id="_core/onscreen_menu/bar_start"]` through `x-inject`; that keeps the controls route-owned so they are removed when the route unmounts, while still keeping Back, the space-title toggle, Rearrange, and a confirmed clear-all-widgets trash action together in shared shell chrome, with the metadata editor popover anchored to the title button instead of owning a separate fixed page overlay
+- `_core/time_travel` keeps its page title copy inside the routed page but injects its route-owned Refresh and repository-picker controls into `[id="_core/onscreen_menu/bar_start"]` through `x-inject`, keeping those controls in shared shell chrome without turning them into persistent shell extensions
 - the `_core/admin` shell keeps its admin tabs in the left-pane topbar and ends that topbar with a leave-admin icon button that returns to the current iframe URL
 
 ## JavaScript Extension Hooks
@@ -116,6 +124,8 @@ Uncached HTML `<x-extension>` lookups are grouped before they hit `/api/extensio
 
 JS hook lookups do not use that frame wait window. Hook callers await them directly, so the frontend requests JS extension paths immediately instead of delaying them for batching.
 
+The framework fetch wrapper also carries the highest observed `Space-State-Version` on follow-up same-origin requests and automatically retries the router's bounded retryable sync `503` responses a few times, so startup-time worker catch-up races do not usually surface as broken extension bootstrap.
+
 ## Extension Metadata Manifests
 
 Not every extension-resolved file is an HTML adapter or JS hook.
@@ -124,7 +134,7 @@ Modules may also store lightweight metadata manifests under other `ext/` folders
 
 Current first-party example:
 
-- `_core/pages` discovers dashboard page manifests from `mod/<author>/<repo>/ext/pages/*.yaml` through `extensions_load` and renders them as the dashboard's secondary `PANELS` chip row beneath the spaces launcher instead of as primary content cards
+- `_core/pages` discovers dashboard page manifests from `mod/<author>/<repo>/ext/pages/*.yaml` through `extensions_load` and renders them as the dashboard's secondary `Panels` section beneath the spaces launcher, reusing the same centered uppercase inset divider heading treatment as `Spaces` while adding a little more top breathing room than the spaces heading instead of presenting them as primary content cards
 - `_core/agent` publishes `ext/pages/agent.yaml` so the dashboard can launch the routed agent settings page without hardcoding it into dashboard or router; that route stays self-contained inside the module, keeps the astronaut info card, exposes only the external repo CTA, and edits the raw `~/conf/personality.system.include.md` prompt-include file
 - `_core/file_explorer` publishes `ext/pages/file_explorer.yaml` for the `#/file_explorer` Files route and also exposes `component.html` so the admin Files tab can reuse the same app-file browser without owning a second implementation
 - `_core/huggingface` publishes `ext/pages/huggingface.yaml` so the dashboard can launch the `Local LLM` page backed by the routed Hugging Face browser runtime
@@ -162,6 +172,7 @@ Behavior:
 - styles and stylesheets are appended to the mount target
 - module scripts are loaded via dynamic `import()`
 - nested `<x-component>` tags are loaded recursively
+- concurrent scans of the same `<x-component>` target share the same in-flight load instead of dropping duplicate callers, so observer rescans do not leave late-mounted components partially hydrated
 - dynamic discovery watches `document.documentElement`, so components inserted into `head` after bootstrap are still loaded
 - wrapper attributes are exposed to descendants through `xAttrs($el)`
 

@@ -70,13 +70,10 @@ const GRID_BASE_HALF_COLS = 0;
 const GRID_BASE_HALF_ROWS = 0;
 const GRID_CONTENT_BUFFER_COLS = 6;
 const GRID_CONTENT_BUFFER_ROWS = 6;
-const GRID_CAMERA_BUFFER_COLS = 2;
-const GRID_CAMERA_BUFFER_ROWS = 2;
-const GRID_SPARSE_CAMERA_SIDE_WIGGLE_COLS = 12;
-const GRID_SPARSE_CAMERA_MIN_VERTICAL_WIGGLE_ROWS = 4;
-const GRID_SPARSE_CAMERA_MAX_TOP_HEADROOM_ROWS = 5.5;
-const GRID_SPARSE_CAMERA_MIN_TOP_HEADROOM_ROWS = 0.25;
-const GRID_SPARSE_CAMERA_PREFERRED_TOP_HEADROOM_ROWS = 0.75;
+const GRID_CAMERA_MIN_VISIBLE_EDGE_COLS = 1;
+const GRID_CAMERA_MIN_VISIBLE_EDGE_ROWS = 1;
+const GRID_INITIAL_TOP_HEADROOM_ROWS = 0;
+const GRID_INITIAL_TOP_BAR_GAP = "0.5em";
 const GRID_EDGE_SCROLL_THRESHOLD = 72;
 const GRID_EDGE_SCROLL_SPEED = 8;
 const SPACE_META_PERSIST_DELAY_MS = 320;
@@ -201,6 +198,48 @@ function normalizeRuntimeWidgetIdList(values) {
   return [...new Set(rawValues.map((value) => String(value ?? "").trim()).filter(Boolean).map((value) => normalizeWidgetId(value)))];
 }
 
+function normalizeWidgetMetadataForComparison(value) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeWidgetMetadataForComparison(entry))
+      .filter((entry) => entry !== undefined);
+  }
+
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([leftKey], [rightKey]) => String(leftKey).localeCompare(String(rightKey)))
+      .flatMap(([key, entryValue]) => {
+        const normalizedEntryValue = normalizeWidgetMetadataForComparison(entryValue);
+        return normalizedEntryValue === undefined ? [] : [[key, normalizedEntryValue]];
+      })
+  );
+}
+
+function serializeWidgetMetadataForComparison(value) {
+  const normalizedValue = normalizeWidgetMetadataForComparison(value);
+  return JSON.stringify(
+    normalizedValue && typeof normalizedValue === "object" && !Array.isArray(normalizedValue)
+      ? normalizedValue
+      : {}
+  );
+}
+
+function cloneWidgetMetadataForRuntime(value) {
+  return JSON.parse(serializeWidgetMetadataForComparison(value));
+}
+
 function widgetSizesMatch(left, right) {
   const leftSize = normalizeWidgetSize(left, DEFAULT_WIDGET_SIZE);
   const rightSize = normalizeWidgetSize(right, DEFAULT_WIDGET_SIZE);
@@ -223,6 +262,7 @@ function widgetRecordNeedsRender(previousSpace, nextSpace, widgetId) {
 
   return (
     previousWidget.name !== nextWidget.name ||
+    serializeWidgetMetadataForComparison(previousWidget.metadata) !== serializeWidgetMetadataForComparison(nextWidget.metadata) ||
     previousWidget.rendererSource !== nextWidget.rendererSource ||
     previousWidget.schema !== nextWidget.schema ||
     !widgetSizesMatch(previousWidget.defaultSize, nextWidget.defaultSize) ||
@@ -480,6 +520,23 @@ function ensureSpacesRuntimeNamespace() {
         : globalThis.space.router.goTo(SPACES_ROUTE_PATH, { params: { id: normalizedSpaceId } });
     },
     readSpace,
+    repositionCurrentSpace: async (options = {}) => {
+      if (!activeSpacesStore) {
+        throw new Error("The spaces view is not currently mounted.");
+      }
+
+      const targetSpaceId =
+        typeof options === "object" && options && !Array.isArray(options)
+          ? normalizeOptionalSpaceId(options.spaceId ?? options.id ?? activeSpacesStore.currentSpaceId)
+          : activeSpacesStore.currentSpaceId;
+
+      if (!targetSpaceId || targetSpaceId !== activeSpacesStore.currentSpaceId) {
+        throw new Error("Viewport reposition is only available for the currently open space.");
+      }
+
+      activeSpacesStore.repositionCurrentSpaceViewport(options);
+      return activeSpacesStore.currentSpace;
+    },
     rearrangeWidgets: async (options = {}) => {
       const targetSpaceId = options.spaceId || activeSpacesStore?.currentSpaceId;
 
@@ -553,12 +610,12 @@ function ensureSpacesRuntimeNamespace() {
 
       return savedSpace;
     },
-    reloadCurrentSpace: async () => {
+    reloadCurrentSpace: async (options = {}) => {
       if (!activeSpacesStore) {
         throw new Error("The spaces view is not currently mounted.");
       }
 
-      await activeSpacesStore.reloadCurrentSpace();
+      await activeSpacesStore.reloadCurrentSpace(options);
       return activeSpacesStore.currentSpace;
     },
     reloadWidget: async (widgetIdOrOptions = {}) => {
@@ -1414,8 +1471,10 @@ function buildRuntimeWidgetDescriptor(spaceRecord, resolvedLayout, widgetId) {
       size: effectiveSize,
       state: minimized ? "minimized" : "expanded"
     }),
+    example: Boolean(widgetRecord.metadata?.example),
     id: widgetId,
     minimized,
+    metadata: cloneWidgetMetadataForRuntime(widgetRecord.metadata),
     name: widgetRecord.name || formatTitleFromId(widgetId),
     needsRepair: renderCheck.needsRepair,
     path: buildSpaceWidgetFilePath(spaceRecord.id, widgetId),
@@ -1521,8 +1580,8 @@ function createCurrentSpaceRuntime(namespace) {
     listWidgets() {
       return buildWidgetCatalogText(this.widgets);
     },
-    reload() {
-      return namespace.reloadCurrentSpace();
+    reload(options = {}) {
+      return namespace.reloadCurrentSpace(options);
     },
     reloadWidget(widgetId) {
       return namespace.reloadWidget({
@@ -1608,6 +1667,12 @@ function createCurrentSpaceRuntime(namespace) {
       }
 
       return activeSpacesStore.rearrangeCurrentSpace();
+    },
+    reposition(options = {}) {
+      return namespace.repositionCurrentSpace({
+        ...options,
+        spaceId: activeSpacesStore?.currentSpaceId
+      });
     },
     saveLayout(options = {}) {
       return namespace.saveSpaceLayout({
@@ -1909,6 +1974,7 @@ function readGridMetrics(gridElement) {
     rowGap,
     rowHeight,
     rowStep: rowHeight + rowGap,
+    paddingTop,
     viewportHeight,
     viewportWidth
   };
@@ -1996,76 +2062,79 @@ function resolveLogicalContentBounds(resolvedLayout) {
   return hasContent ? bounds : null;
 }
 
-function resolveSparseVerticalCameraRange(contentBounds, metrics) {
+function resolveCameraCenterRange(contentBounds, metrics) {
   if (!contentBounds) {
     return null;
   }
 
+  const contentWidth = Math.max(0, contentBounds.maxCol - contentBounds.minCol);
+  const contentHeight = Math.max(0, contentBounds.maxRow - contentBounds.minRow);
+  const visibleEdgeCols = Math.max(0, Math.min(GRID_CAMERA_MIN_VISIBLE_EDGE_COLS, contentWidth));
+  const visibleEdgeRows = Math.max(0, Math.min(GRID_CAMERA_MIN_VISIBLE_EDGE_ROWS, contentHeight));
+  const visibleHalfCols = metrics.viewportWidth / (2 * Math.max(metrics.colStep, 1));
   const visibleHalfRows = metrics.viewportHeight / (2 * Math.max(metrics.rowStep, 1));
-  const naturalMinCenterRow = (contentBounds.minRow - GRID_CAMERA_BUFFER_ROWS) + visibleHalfRows;
-  const naturalMaxCenterRow = (contentBounds.maxRow + GRID_CAMERA_BUFFER_ROWS) - visibleHalfRows;
-  const naturalWiggleRows = naturalMaxCenterRow - naturalMinCenterRow;
-
-  if (naturalMinCenterRow <= naturalMaxCenterRow && naturalWiggleRows >= GRID_SPARSE_CAMERA_MIN_VERTICAL_WIGGLE_ROWS) {
-    return null;
-  }
-
-  const minCenterRow = (contentBounds.minRow - GRID_SPARSE_CAMERA_MAX_TOP_HEADROOM_ROWS) + visibleHalfRows;
-  const maxCenterRow = (contentBounds.minRow - GRID_SPARSE_CAMERA_MIN_TOP_HEADROOM_ROWS) + visibleHalfRows;
-  const preferredCenterRow = clampNumber(
-    (contentBounds.minRow - GRID_SPARSE_CAMERA_PREFERRED_TOP_HEADROOM_ROWS) + visibleHalfRows,
-    minCenterRow,
-    maxCenterRow
-  );
+  const minCenterRow = (contentBounds.minRow + visibleEdgeRows) - visibleHalfRows;
 
   return {
-    maxCenterRow,
+    maxCenterCol: (contentBounds.maxCol - visibleEdgeCols) + visibleHalfCols,
+    maxCenterRow: (contentBounds.maxRow - visibleEdgeRows) + visibleHalfRows,
+    minCenterCol: (contentBounds.minCol + visibleEdgeCols) - visibleHalfCols,
     minCenterRow,
-    preferredCenterRow
+    visibleHalfCols,
+    visibleHalfRows
   };
 }
 
-function resolveSparseHorizontalCameraRange(contentBounds, metrics) {
-  if (!contentBounds) {
-    return null;
+function resolveGridTopOverlayInsetPx(metrics, gridElement = activeSpacesStore?.refs?.grid) {
+  const paddingTop = Math.max(0, Number(metrics?.paddingTop) || 0);
+  const gridTop = Number(metrics?.rect?.top) || gridElement?.getBoundingClientRect?.().top || 0;
+  const gridPaddingTop = gridTop + paddingTop;
+  const liveShellBar = document.querySelector(".onscreen-menu-bar");
+  const liveShellBottom = liveShellBar?.getBoundingClientRect?.().bottom;
+  const gapContextElement = liveShellBar || gridElement || document.body || document.documentElement;
+  const overlayGapPx = resolveCssLength(GRID_INITIAL_TOP_BAR_GAP, gapContextElement, 0);
+
+  if (Number.isFinite(liveShellBottom) && liveShellBottom > 0) {
+    return Math.max(0, (liveShellBottom + overlayGapPx) - gridPaddingTop);
   }
 
-  const visibleHalfCols = metrics.viewportWidth / (2 * Math.max(metrics.colStep, 1));
-  const naturalMinCenterCol = (contentBounds.minCol - GRID_CAMERA_BUFFER_COLS) + visibleHalfCols;
-  const naturalMaxCenterCol = (contentBounds.maxCol + GRID_CAMERA_BUFFER_COLS) - visibleHalfCols;
+  const body = document.body;
 
-  if (naturalMinCenterCol <= naturalMaxCenterCol) {
-    return null;
+  if (body) {
+    const clearancePx = resolveCssLength(
+      window.getComputedStyle(body).getPropertyValue("--router-shell-start-clearance"),
+      body,
+      0
+    );
+
+    return Math.max(0, (clearancePx + overlayGapPx) - gridPaddingTop);
   }
 
-  const minCenterCol = (contentBounds.minCol - GRID_SPARSE_CAMERA_SIDE_WIGGLE_COLS) + visibleHalfCols;
-  const maxCenterCol = (contentBounds.maxCol + GRID_SPARSE_CAMERA_SIDE_WIGGLE_COLS) - visibleHalfCols;
+  return 0;
+}
+
+function resolvePreferredInitialCameraOffset(resolvedLayout, metrics) {
+  const contentBounds = resolveLogicalContentBounds(resolvedLayout);
+  const cameraRange = resolveCameraCenterRange(contentBounds, metrics);
+
+  if (!contentBounds || !cameraRange) {
+    return {
+      x: 0,
+      y: 0
+    };
+  }
+
   const preferredCenterCol = clampNumber(
     (contentBounds.minCol + contentBounds.maxCol) / 2,
-    minCenterCol,
-    maxCenterCol
+    cameraRange.minCenterCol,
+    cameraRange.maxCenterCol
   );
-
-  return {
-    maxCenterCol,
-    minCenterCol,
-    preferredCenterCol
-  };
-}
-
-function resolvePreferredSparseCameraOffset(cameraOffset, resolvedLayout, metrics) {
-  const contentBounds = resolveLogicalContentBounds(resolvedLayout);
-  const sparseHorizontalRange = resolveSparseHorizontalCameraRange(contentBounds, metrics);
-  const sparseVerticalRange = resolveSparseVerticalCameraRange(contentBounds, metrics);
-
-  if (!sparseHorizontalRange && !sparseVerticalRange) {
-    return null;
-  }
-
-  const currentCenterCol = -(Number.isFinite(cameraOffset?.x) ? cameraOffset.x : 0) / Math.max(metrics.colStep, 1);
-  const preferredCenterCol = sparseHorizontalRange?.preferredCenterCol ?? currentCenterCol;
-  const currentCenterRow = -(Number.isFinite(cameraOffset?.y) ? cameraOffset.y : 0) / Math.max(metrics.rowStep, 1);
-  const preferredCenterRow = sparseVerticalRange?.preferredCenterRow ?? currentCenterRow;
+  const topOverlayInsetRows = resolveGridTopOverlayInsetPx(metrics) / Math.max(metrics.rowStep, 1);
+  const preferredCenterRow = clampNumber(
+    (contentBounds.minRow - GRID_INITIAL_TOP_HEADROOM_ROWS) + cameraRange.visibleHalfRows - topOverlayInsetRows,
+    cameraRange.minCenterRow,
+    cameraRange.maxCenterRow
+  );
 
   return {
     x: -preferredCenterCol * metrics.colStep,
@@ -2075,30 +2144,19 @@ function resolvePreferredSparseCameraOffset(cameraOffset, resolvedLayout, metric
 
 function clampCameraOffsetToContent(cameraOffset, resolvedLayout, metrics) {
   const contentBounds = resolveLogicalContentBounds(resolvedLayout);
+  const cameraRange = resolveCameraCenterRange(contentBounds, metrics);
 
-  if (!contentBounds) {
+  if (!contentBounds || !cameraRange) {
     return {
       x: 0,
       y: 0
     };
   }
 
-  const visibleHalfCols = metrics.viewportWidth / (2 * Math.max(metrics.colStep, 1));
-  const visibleHalfRows = metrics.viewportHeight / (2 * Math.max(metrics.rowStep, 1));
-  const sparseHorizontalRange = resolveSparseHorizontalCameraRange(contentBounds, metrics);
-  const minCenterCol = sparseHorizontalRange?.minCenterCol ??
-    ((contentBounds.minCol - GRID_CAMERA_BUFFER_COLS) + visibleHalfCols);
-  const maxCenterCol = sparseHorizontalRange?.maxCenterCol ??
-    ((contentBounds.maxCol + GRID_CAMERA_BUFFER_COLS) - visibleHalfCols);
-  const sparseVerticalRange = resolveSparseVerticalCameraRange(contentBounds, metrics);
-  const minCenterRow = sparseVerticalRange?.minCenterRow ??
-    ((contentBounds.minRow - GRID_CAMERA_BUFFER_ROWS) + visibleHalfRows);
-  const maxCenterRow = sparseVerticalRange?.maxCenterRow ??
-    ((contentBounds.maxRow + GRID_CAMERA_BUFFER_ROWS) - visibleHalfRows);
   const currentCenterCol = -cameraOffset.x / Math.max(metrics.colStep, 1);
   const currentCenterRow = -cameraOffset.y / Math.max(metrics.rowStep, 1);
-  const clampedCenterCol = clampNumber(currentCenterCol, minCenterCol, maxCenterCol);
-  const clampedCenterRow = clampNumber(currentCenterRow, minCenterRow, maxCenterRow);
+  const clampedCenterCol = clampNumber(currentCenterCol, cameraRange.minCenterCol, cameraRange.maxCenterCol);
+  const clampedCenterRow = clampNumber(currentCenterRow, cameraRange.minCenterRow, cameraRange.maxCenterRow);
 
   return {
     x: -clampedCenterCol * metrics.colStep,
@@ -2327,7 +2385,9 @@ function createWidgetContext(spaceRecord, widgetId, size, layoutEntry) {
     widget: {
       defaultPosition: getWidgetDefaultPosition(spaceRecord, widgetId),
       defaultSize: getWidgetDefaultSize(spaceRecord, widgetId),
+      example: Boolean(widgetRecord?.metadata?.example),
       id: widgetId,
+      metadata: cloneWidgetMetadataForRuntime(widgetRecord?.metadata),
       minimized: Boolean(layoutEntry?.minimized),
       name: widgetRecord?.name || formatTitleFromId(widgetId),
       path: widgetPath,
@@ -2575,7 +2635,6 @@ const spacesModel = {
   emptyCanvasSeenSpaceIds: new Set(),
   emptyCanvasSeenStorageKey: "",
   emptyCanvasSeenStorageLoaded: false,
-  hasCenteredCurrentSpace: false,
   canvasViewportSyncToken: 0,
   configPanelAnchor: null,
   configPanelPosition: {
@@ -2680,7 +2739,6 @@ const spacesModel = {
     this.refs.canvas?.style.removeProperty("height");
     this.refs.canvas?.style.removeProperty("min-height");
     this.motionQuery = null;
-    this.hasCenteredCurrentSpace = false;
     this.emptyCanvasIdentityPromise = null;
     this.emptyCanvasSeenSpaceIds = new Set();
     this.emptyCanvasSeenStorageKey = "";
@@ -2838,8 +2896,19 @@ const spacesModel = {
     return this.isConfigPanelOpen ? "Close space settings" : "Open space settings";
   },
 
+  get currentSpaceHasOnlyExampleWidgets() {
+    const currentSpace = this.currentSpace;
+    const widgetIds = Array.isArray(currentSpace?.widgetIds) ? currentSpace.widgetIds : [];
+
+    return widgetIds.length > 0 && widgetIds.every((widgetId) => currentSpace?.widgets?.[widgetId]?.metadata?.example === true);
+  },
+
   get currentSpaceClearAllWidgetsLabel() {
-    return "Clear all widgets";
+    return this.currentSpaceHasOnlyExampleWidgets ? "Close example" : "Clear all widgets";
+  },
+
+  get currentSpaceClearAllWidgetsIcon() {
+    return this.currentSpaceHasOnlyExampleWidgets ? "close" : "delete_sweep";
   },
 
   get currentSpaceClearAllWidgetsConfirmMessage() {
@@ -2883,7 +2952,7 @@ const spacesModel = {
       return null;
     }
 
-    if (!globalThis.confirm(this.currentSpaceClearAllWidgetsConfirmMessage)) {
+    if (!this.currentSpaceHasOnlyExampleWidgets && !globalThis.confirm(this.currentSpaceClearAllWidgetsConfirmMessage)) {
       return null;
     }
 
@@ -2905,7 +2974,10 @@ const spacesModel = {
       logSpacesError("clearCurrentSpaceWidgets failed", error, {
         spaceId: targetSpaceId
       });
-      this.setNotice(formatErrorMessage(error, "Unable to clear all widgets."), "error");
+      this.setNotice(
+        formatErrorMessage(error, this.currentSpaceHasOnlyExampleWidgets ? "Unable to close example." : "Unable to clear all widgets."),
+        "error"
+      );
       return null;
     } finally {
       this.clearingCurrentSpaceWidgets = false;
@@ -3328,22 +3400,6 @@ const spacesModel = {
     });
   },
 
-  centerCanvasOnOrigin(force = false) {
-    if (!this.refs.grid) {
-      return;
-    }
-
-    if (this.hasCenteredCurrentSpace && !force && this.cameraOffsetPx.x === 0 && this.cameraOffsetPx.y === 0) {
-      return;
-    }
-
-    this.cameraOffsetPx = {
-      x: 0,
-      y: 0
-    };
-    this.hasCenteredCurrentSpace = true;
-  },
-
   applyResolvedLayoutToCards(resolvedLayout, spaceRecord = this.currentSpace, options = {}) {
     if (!resolvedLayout || !spaceRecord || !this.refs.grid) {
       return;
@@ -3352,16 +3408,8 @@ const spacesModel = {
     const metrics = readGridMetrics(this.refs.grid);
     const previousRects = options.previousRects || null;
 
-    if (options.centerOrigin) {
-      this.centerCanvasOnOrigin(true);
-    }
-
-    if (options.preferSparseInitialOffset) {
-      const preferredSparseCameraOffset = resolvePreferredSparseCameraOffset(this.cameraOffsetPx, resolvedLayout, metrics);
-
-      if (preferredSparseCameraOffset) {
-        this.cameraOffsetPx = preferredSparseCameraOffset;
-      }
+    if (options.resetCamera) {
+      this.cameraOffsetPx = resolvePreferredInitialCameraOffset(resolvedLayout, metrics);
     }
 
     this.cameraOffsetPx = clampCameraOffsetToContent(this.cameraOffsetPx, resolvedLayout, metrics);
@@ -3398,6 +3446,19 @@ const spacesModel = {
 
     toggleGridOverlay(this.refs.grid, shouldShowGridOverlay(this.layoutInteraction), metrics, this.cameraOffsetPx);
     syncSpacesRuntimeState();
+  },
+
+  repositionCurrentSpaceViewport(options = {}) {
+    if (!this.currentResolvedLayout || !this.currentSpace || !this.refs.grid) {
+      return false;
+    }
+
+    this.applyResolvedLayoutToCards(this.currentResolvedLayout, this.currentSpace, {
+      resetCamera: true,
+      skipAnimation: options.skipAnimation !== false
+    });
+
+    return true;
   },
 
   cleanupLayoutInteraction(options = {}) {
@@ -4055,10 +4116,6 @@ const spacesModel = {
     }).positions;
 
     nextSpace.widgetPositions = positions;
-    this.cameraOffsetPx = {
-      x: 0,
-      y: 0
-    };
 
     const resolvedLayout = this.resolveCurrentSpaceLayout(nextSpace, {
       minimizedWidgetIds: nextSpace.minimizedWidgetIds,
@@ -4070,6 +4127,7 @@ const spacesModel = {
     nextSpace.minimizedWidgetIds = nextSpace.widgetIds.filter((widgetId) => resolvedLayout.minimizedMap[widgetId]);
     this.currentSpace = nextSpace;
     this.applyResolvedLayoutToCards(resolvedLayout, nextSpace, {
+      resetCamera: true,
       previousRects
     });
     void this.persistLayoutSnapshot(nextSpace);
@@ -4213,7 +4271,6 @@ const spacesModel = {
     this.widgetRenderChecks = {};
     this.currentCanvasBounds = null;
     this.currentResolvedLayout = null;
-    this.hasCenteredCurrentSpace = false;
     this.refs.grid.style.removeProperty("width");
     this.refs.grid.style.removeProperty("height");
     this.refs.grid.replaceChildren();
@@ -4258,7 +4315,6 @@ const spacesModel = {
     this.configPanelAnchor = null;
     this.isConfigPanelOpen = false;
     this.isConfigPanelVisible = false;
-    this.hasCenteredCurrentSpace = false;
     this.widgetCards = {};
     this.widgetErrorCount = 0;
     this.widgetRenderChecks = {};
@@ -4345,7 +4401,6 @@ const spacesModel = {
 
       this.currentCanvasBounds = null;
       this.currentResolvedLayout = null;
-      this.hasCenteredCurrentSpace = false;
       this.cameraOffsetPx = {
         x: 0,
         y: 0
@@ -4392,8 +4447,7 @@ const spacesModel = {
 
     this.applyResolvedLayoutToCards(resolvedLayout, spaceRecord, {
       animateEntering: options.animateEntering,
-      centerOrigin: options.centerOrigin !== false,
-      preferSparseInitialOffset: true,
+      resetCamera: options.resetCamera !== false,
       previousRects: options.previousRects || null
     });
     this.renderFadeCleanup = playGridFadeIn(grid, this.motionQuery);
@@ -4447,8 +4501,7 @@ const spacesModel = {
     this.syncWidgetRenderChecks(spaceRecord.widgetIds, rerenderWidgetIds);
     this.applyResolvedLayoutToCards(resolvedLayout, spaceRecord, {
       animateEntering: options.animateEntering !== false && addedWidgetIds.length > 0,
-      centerOrigin: options.centerOrigin === true,
-      preferSparseInitialOffset: options.centerOrigin === true || !previousSpace?.widgetIds?.length,
+      resetCamera: options.resetCamera === true || !previousSpace?.widgetIds?.length,
       previousRects
     });
 
@@ -4489,8 +4542,8 @@ const spacesModel = {
     await Promise.allSettled(renderJobs);
   },
 
-  async reloadCurrentSpace() {
-    await this.handleExternalMutation(this.currentSpaceId);
+  async reloadCurrentSpace(options = {}) {
+    await this.handleExternalMutation(this.currentSpaceId, options);
   },
 
   async refreshCurrentSpaceFromStorage(spaceId, options = {}) {
@@ -4519,9 +4572,9 @@ const spacesModel = {
       });
       await this.reconcileCurrentSpace(spaceRecord, loadToken, {
         animateEntering: options.animateEntering !== false,
-        centerOrigin: options.centerOrigin === true,
         previousRects,
         previousSpace,
+        resetCamera: options.resetCamera === true,
         widgetId: options.widgetId
       });
     } catch (error) {
@@ -4573,9 +4626,12 @@ const spacesModel = {
     await this.loadSpacesList();
 
     if (spaceId && this.currentSpaceId === spaceId) {
+      const shouldResetCamera = options.resetCamera === true;
+
       await this.refreshCurrentSpaceFromStorage(spaceId, {
-        animateEntering: true,
-        preserveCamera: true,
+        animateEntering: options.animateEntering !== false,
+        preserveCamera: shouldResetCamera ? false : options.preserveCamera !== false,
+        resetCamera: shouldResetCamera,
         widgetId: options.widgetId
       });
       return;

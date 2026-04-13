@@ -62,6 +62,7 @@ const HTML_EXTENSIONS_LOAD_BATCH_WAIT_MS = 0;
 const HTML_EXTENSION_SCOPE = "html";
 const JS_EXTENSION_SCOPE = "js";
 const FRAMEWORK_HEAD_EXTENSION_POINT = "_core/framework/head/end";
+export const HTML_EXTENSION_READY_ATTRIBUTE = "data-space-extension-ready";
 
 export const API_EXTENSION_EXCLUDED_ENDPOINTS = new Set([
   "/api/extensions_load",
@@ -705,6 +706,8 @@ export async function reloadHtmlExtensions(roots = [document.documentElement]) {
  * @returns {Promise<void>}
  */
 export async function importHtmlExtensions(extensionPoint, targetElement) {
+  targetElement.setAttribute(HTML_EXTENSION_READY_ATTRIBUTE, "false");
+
   try {
     const cacheKey = createExtensionCacheKey(
       extensionPoint,
@@ -731,6 +734,8 @@ export async function importHtmlExtensions(extensionPoint, targetElement) {
   } catch (error) {
     console.error("Error importing HTML extensions:", error);
     return;
+  } finally {
+    targetElement.setAttribute(HTML_EXTENSION_READY_ATTRIBUTE, "true");
   }
 }
 

@@ -60,7 +60,7 @@ Source-doc mirror map:
 - nested skills should stay focused on one area rather than repeating the whole architecture
 - `frontend-runtime/SKILL.md` must keep the shared runtime helper list current, including browser utilities such as `space.utils.markdown.render(...)`
 - `frontend-runtime/SKILL.md` must keep the external-fetch guidance current: frontend code should use runtime-managed `fetch(...)` or `space.fetchExternal(...)` and must not hardcode third-party CORS proxy services because the runtime already falls back to `/api/proxy`
-- `extensions-components/SKILL.md` must keep extension lookup batching guidance current, including the HTML-only frontend constant `HTML_EXTENSIONS_LOAD_BATCH_WAIT_MS`
+- `extensions-components/SKILL.md` must keep extension lookup batching guidance current, including the HTML-only frontend constant `HTML_EXTENSIONS_LOAD_BATCH_WAIT_MS`, and must keep delayed-target `x-inject` guidance current for route-owned markup that targets shell seams
 - `frontend-runtime/SKILL.md` and `extensions-components/SKILL.md` must keep the framework-managed `_core/framework/head/end` seam aligned with the imperative `_core/framework/initializer.js/initialize/end` fallback guidance
 - `skills/SKILL.md` should tell authors to prefer small module-local helper imports over long inlined browser scripts when that keeps skill text shorter and more stable
 - `skills/SKILL.md` must keep the shared skill metadata rules current, including `metadata.when.tags`, `metadata.just_loaded`, and the live `<x-skill-context>` tag contract

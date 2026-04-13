@@ -10,26 +10,21 @@ import {
 // cache object to store loaded components
 const componentCache = {};
 
-// Lock map to prevent multiple simultaneous imports of the same component
-const importLocks = new Map();
+// Reuse in-flight loads for the same target element so mutation observers
+// and explicit scans cannot race each other into partial hydration.
+const importLocks = new WeakMap();
 
 export async function importComponent(path, targetElement) {
-  // Create a unique key for this import based on the target element
-  const lockKey = targetElement.id || targetElement.getAttribute('data-component-id') || targetElement;
-  
-  // If this component is already being loaded, return early
-  if (importLocks.get(lockKey)) {
-    console.log(`Component ${path} is already being loaded for target`, targetElement);
-    return;
+  const pendingImport = importLocks.get(targetElement);
+  if (pendingImport) {
+    return pendingImport;
   }
-  
-  // Set the lock
-  importLocks.set(lockKey, true);
-  
-  try {
-    if (!targetElement) {
-      throw new Error("Target element is required");
-    }
+
+  const importPromise = (async () => {
+    try {
+      if (!targetElement) {
+        throw new Error("Target element is required");
+      }
 
     // Show loading indicator
     targetElement.innerHTML = '<div class="loading"></div>';
@@ -193,14 +188,22 @@ export async function importComponent(path, targetElement) {
     // // Load any nested components
     // await loadComponents([targetElement]);
 
-    // Return parsed document
-    return doc;
-  } catch (error) {
-    console.error("Error importing component:", error);
-    throw error;
+      // Return parsed document
+      return doc;
+    } catch (error) {
+      console.error("Error importing component:", error);
+      throw error;
+    }
+  })();
+
+  importLocks.set(targetElement, importPromise);
+
+  try {
+    return await importPromise;
   } finally {
-    // Release the lock when done, regardless of success or failure
-    importLocks.delete(lockKey);
+    if (importLocks.get(targetElement) === importPromise) {
+      importLocks.delete(targetElement);
+    }
   }
 }
 

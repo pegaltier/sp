@@ -65,6 +65,7 @@ Rules:
 
 - keep derived indexes derived; do not build side-channel mutable state around them
 - treat the watchdog as the only authoritative writer of replicated filesystem-derived state shards
+- primary-owned watchdog state initializes its replicated version space from a long startup epoch when no snapshot version is provided, while replicas continue to trust the primary snapshot version they were bootstrapped with
 - incremental `user_index` rebuilds rely on concrete changed auth or profile file paths, so mutation publishers must include `user.yaml`, `meta/password.json`, and `meta/logins.json` when those files are created or rewritten
 - clustered worker replicas consume versioned snapshots and incremental state deltas from the primary watchdog owner
 - if a feature needs a new live derived view, add a handler plus config entry instead of manually wiring one-off logic in `server/app.js`

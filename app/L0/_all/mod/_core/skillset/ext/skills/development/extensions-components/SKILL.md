@@ -12,6 +12,7 @@ Use this skill when the task needs `ext/html/`, `ext/js/`, `x-extension`, `x-com
 - HTML callers name only the seam; the runtime resolves `ext/html/` automatically.
 - Keep extension files thin. They should usually mount a real component with `<x-component path="/mod/...">`.
 - `_core/framework` also creates `_core/framework/head/end` in `document.head` during bootstrap when a layer needs head-side HTML or inline bootstrap code without editing page shells.
+- Use framework `x-inject="selector"` instead of raw Alpine `x-teleport` when route-owned markup targets a shell seam that may mount later; it mirrors teleport semantics for `<template>` roots, waits for the selector, and disconnects its observer when the source template unmounts.
 - Dynamic discovery watches the whole document tree, so `head` seams and the `x-component` nodes they insert are loaded the same way as body content.
 - The routed shell header owns Home itself and points it at the empty route `#/`; `_core/onscreen_menu/bar_start` and `_core/onscreen_menu/bar_end` are the left and right shell-control seams, and feature modules add non-Home dropdown menu-action buttons under `_core/onscreen_menu/items` with numeric `data-order` values such as `100`, `200`, `300`, and `400`; `_core/onscreen_menu` sorts contributed controls or items automatically and keeps only the auth exit action after the dropdown seam.
 
@@ -44,6 +45,7 @@ Example:
 
 - `<x-component>` may load a full HTML document or a fragment.
 - The loader mounts styles, module scripts, and body nodes, then recursively resolves nested `<x-component>` tags.
+- Concurrent scans of the same `<x-component>` target reuse the in-flight load; they must not bail out in a way that leaves late-mounted components partially hydrated.
 - Mutation-driven `x-component` discovery watches `document.documentElement`, not only `body`, so head-side components hydrate too.
 - Keep component HTML declarative and bind behavior through stores.
 - Import the owning store module in the component that owns the feature, not in an unrelated parent shell.

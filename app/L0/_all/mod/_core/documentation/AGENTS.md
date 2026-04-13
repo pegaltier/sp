@@ -61,4 +61,5 @@ This module owns:
 - when skill discovery, skill-context tags, or skill frontmatter rules change, keep `docs/app/modules-and-extensions.md`, `docs/app/admin-agent-runtime.md`, `docs/app/spaces-and-widgets.md`, `docs/agent/skills-and-documentation.md`, and `docs/agent/prompt-and-execution.md` aligned in the same session
 - when a new first-party routed page also advertises itself through `ext/pages/*.yaml` or persists user-local promptinclude or settings files, reflect that in `docs/app/modules-and-extensions.md` and `docs/app/runtime-and-layers.md` in the same session
 - when framework-managed head seams or page-bootstrap extension seams change, keep `docs/app/modules-and-extensions.md` and `docs/server/request-flow-and-pages.md` aligned in the same session
+- when framework-owned Alpine helper directives change route-to-shell injection behavior, keep `docs/app/modules-and-extensions.md` and any affected feature docs such as `docs/app/spaces-and-widgets.md` aligned in the same session
 - do not let this module drift into a second hidden prompt system; it is browsable repo documentation

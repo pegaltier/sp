@@ -118,6 +118,22 @@ export function normalizeProjectPath(input, options = {}) {
   return normalizeDirectorySuffix(normalizedPath, isDirectory);
 }
 
+function resolveInitialReplicatedVersion(initialSnapshot, replica) {
+  const snapshotVersion = Math.floor(Number(initialSnapshot?.version));
+
+  if (Number.isFinite(snapshotVersion) && snapshotVersion > 0) {
+    return snapshotVersion;
+  }
+
+  if (replica) {
+    return 0;
+  }
+
+  // Seed primary-owned state versions from wall-clock time so a restarted runtime
+  // does not fall behind a browser's highest previously observed version.
+  return Date.now();
+}
+
 export function toProjectPath(projectRoot, absolutePath, options = {}) {
   return resolveProjectPathFromAbsolute(projectRoot, absolutePath, options);
 }
@@ -475,7 +491,7 @@ export function createWatchdog(options = {}) {
     options.stateSystem ||
     createStateSystem({
       replica,
-      version: Number(initialSnapshot?.version) || 0
+      version: resolveInitialReplicatedVersion(initialSnapshot, replica)
     });
   const replicatedAreaState = Object.create(null);
   let compiledPatterns = [];

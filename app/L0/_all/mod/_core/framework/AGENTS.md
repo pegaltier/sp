@@ -24,7 +24,7 @@ This module owns:
 - `js/components.js`: `<x-component>` loading, recursive component imports, and `xAttrs(...)`
 - `js/AlpineStore.js`: store registration helper used by the runtime and legacy modules
 - `js/chat-messages.js`: shared chat-request message folding helpers that collapse consecutive `user` or `assistant` payload turns into alternating messages with blank-line joins
-- Alpine directives and magic helpers registered during bootstrap
+- Alpine directives and magic helpers registered during bootstrap, including delayed-target `x-inject`
 - shared browser API helpers in `js/api-client.js`, `js/api.js`, `js/fetch-proxy.js`, `js/download.js`, and `js/proxy-url.js`
 - small shared parsing and utility helpers such as markdown frontmatter, the browser YAML wrapper, and token counting
 - shared framework CSS and icon font assets under `css/`, including non-visual helper-tag defaults such as hidden `x-skill-context` elements
@@ -63,12 +63,14 @@ Current API helper contract:
 - `gitHistoryList` accepts `limit`, `offset`, and `fileFilter` when passed an options object, returns only commit metadata for the requested page, and includes `currentHash` so UIs can distinguish the current point from preserved forward-travel refs
 - `gitHistoryPreview` accepts `operation: "travel" | "revert"` plus optional `filePath`; it returns affected-file metadata and, when a file is provided, the operation-specific patch
 - framework-managed external `fetch(...)` calls and `space.fetchExternal(...)` try the browser's direct request first; when a direct cross-origin attempt fails and the `/api/proxy` retry succeeds, the frontend remembers that origin for the rest of the runtime and routes later requests for the same origin through the backend immediately
+- same-origin `fetch(...)` calls made after the fetch proxy is installed automatically carry the highest observed `Space-State-Version`, and when the router returns its bounded retryable sync `503` with `Retry-After: 0`, `fetch-proxy.js` retries the request a few times before surfacing the failure to callers
 - frontend modules and widgets must not hardcode third-party CORS proxy services; use direct `fetch(...)` or `space.fetchExternal(...)` for remote reads and reserve `space.proxy.buildUrl(...)` for cases that need a same-origin proxied URL string
 
 Rules:
 
 - do not import `extensions.js` from feature modules just to reach `space.extend`; use `globalThis.space.extend(...)`
 - do not publish the runtime into `parent`, `top`, or sibling frames
+- framework bootstrap registers `x-inject="selector"` for `<template>` roots; it mirrors Alpine `x-teleport`, waits for a matching selector with a `MutationObserver`, and disconnects that wait when the source template cleans up, so route-owned markup can safely target shell seams that may mount later
 - `css/index.css` installs the app-wide border-box sizing baseline; modules may rely on `width: 100%` including padding and borders unless they explicitly opt an element back into content-box sizing
 - if bootstrap order changes, update this doc and `/app/AGENTS.md`
 - shell-level one-time setup that can stay declarative, such as inline analytics bootstrap or static `document.head` tags, should prefer the framework-managed `_core/framework/head/end` HTML seam instead of page-shell edits
@@ -94,6 +96,7 @@ Important contracts:
 - empty extension lookups are cached as valid results
 - `moduleResolution.js` preserves page-level `maxLayer` for `/mod/...` and `/api/extensions_load` requests
 - `fetch-proxy.js` also stamps same-origin `fetch("/mod/...")` requests with `X-Space-Max-Layer` when the current page declares a module clamp, so ad hoc module reads follow the same L0 or L1 or L2 ceiling as declarative module loading
+- `fetch-proxy.js` is also the canonical retry point for the router's retryable state-sync fence responses; feature modules should not open-code their own retry loops for the standard `Space-State-Version` synchronization path
 
 `components.js` owns `<x-component>` loading.
 
@@ -103,6 +106,7 @@ Current loader behavior:
 - stylesheets and styles are appended to the target element
 - module scripts are loaded through dynamic `import()`
 - nested `<x-component>` nodes are loaded recursively
+- concurrent scans of the same component target share one in-flight import instead of returning early, so observer-driven rescans cannot strand late-mounted components in a partial loading state
 - dynamic `<x-component>` discovery also watches the whole `document.documentElement`, so components inserted under `head` are hydrated the same way as body-mounted components
 - parent wrapper attributes are exposed to descendants through `xAttrs($el)`
 

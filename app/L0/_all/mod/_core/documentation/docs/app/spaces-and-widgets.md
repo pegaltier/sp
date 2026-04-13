@@ -37,7 +37,7 @@ Important rules:
 - the manifest should not invent fake untitled titles
 - widget source is now YAML-first; old `widgets/*.js` files are migration input only
 - space title and agent-instruction edits are draft-first in the current-space header popover and should flush on blur, panel close, route change, or unmount rather than persisting on every keystroke
-- while a current space is open, `_core/spaces` defines its Back, title-toggle, Rearrange, and icon-only clear-all-widgets controls directly inside the spaces route and teleports them into the menu shell's existing `[id="_core/onscreen_menu/bar_start"]` container instead of rendering a separate fixed in-canvas overlay
+- while a current space is open, `_core/spaces` defines its Back, title-toggle, Rearrange, and widget-dismiss controls directly inside the spaces route and injects them into the menu shell's existing `[id="_core/onscreen_menu/bar_start"]` container through `x-inject` instead of rendering a separate fixed in-canvas overlay; normal spaces keep the icon-only trash dismiss action and still confirm before clearing, but spaces whose current widgets all carry `metadata.example: true` swap that control to a labeled `Close example` button with a close icon that closes immediately
 
 ## Runtime Namespaces
 
@@ -52,8 +52,10 @@ Frequently used `space.current` helpers:
 - `readWidget(widgetIdOrName)`
 - `seeWidget(widgetIdOrName, full?)`
 - `patchWidget(widgetId, { ... })`
-- `renderWidget({ id, name, cols, rows, renderer })`
+- `renderWidget({ id, name, cols, rows, metadata?, renderer })`
+- `reload(options?)`
 - `reloadWidget(widgetId)`
+- `reposition(options?)`
 - `removeWidget(...)`, `removeWidgets(...)`, `removeAllWidgets()`
 - `rearrange()`, `repairLayout()`, `toggleWidgets(...)`
 
@@ -64,9 +66,16 @@ Frequently used `space.spaces` helpers:
 - `openSpace(spaceId, options?)`
 - `duplicateSpace(...)`
 - `removeSpace(...)`
-- `upsertWidget(...)`
+- `repositionCurrentSpace(options?)`
+- `reloadCurrentSpace(options?)`
+- `upsertWidget({ ..., metadata? })`
 - `patchWidget(...)`
 - `renderWidget(...)`
+
+Widget YAML rules:
+
+- widgets may carry an optional plain-object `metadata` block in their YAML file; the browser runtime should preserve that metadata through ordinary render/upsert flows unless a caller explicitly replaces it
+- `readWidget(...)` should include a compact `metadata: ...` line when metadata exists, and `space.current.widgets` should expose both the raw `metadata` object and a convenience `example` boolean
 
 ## Layout Packing
 
@@ -81,7 +90,8 @@ Rules:
 - center the packed result back onto the canvas after placement
 - the routed canvas height should be measured from the live router stage and applied explicitly by the spaces store, so the widget grid does not collapse when shell-level bars above the route change height
 - the viewport-sized spaces canvas should not clip its own grid; keep canvas overflow visible so camera-panned widgets can slide visually beneath the fixed routed header bar
-- when the visible widget span is shorter than the viewport, give both camera axes real sparse-layout wiggle room instead of a locked midpoint; horizontal sparse content should still open visually centered but remain pannable left or right afterward, and vertical sparse mode should also take over whenever the normal content-fit clamp would leave only tiny travel on medium-height screens so a lone widget does not feel vertically locked; vertical sparse content should open slightly scrolled downward so first widgets sit higher, and falling back to the empty canvas should reset the camera before the next first-widget render
+- when a space is opened, page-reloaded into the spaces route, shown for the first time after the empty canvas, or rearranged, the camera should reset to the default occupied-span view: center the occupied cells horizontally and place the top-most occupied row on the first visible grid row below the fixed shell bar with an extra `0.5em` gap, using the live onscreen-menu bottom when available and otherwise the router's `--router-shell-start-clearance` fallback
+- after that initial placement, camera panning should remain bounded only until an outer occupied row or column would leave the viewport entirely, so one occupied edge cell always stays visible instead of forcing the whole layout to stay framed; falling back to the empty canvas should still clear stale offsets before the next first-widget render
 
 ## Dashboard Launcher
 
@@ -89,6 +99,7 @@ The dashboard-facing spaces launcher keeps its cards visually fixed instead of u
 
 Rules:
 
+- the launcher heading reads `Spaces` and uses the shared dashboard section-title treatment from `_core/dashboard/dashboard.css`, which centers the title, uppercases it, and adds short mirrored cool-blue gradient divider lines that brighten toward the text; the dashboard pages section should reuse that same heading so both titles align in scale and chrome
 - cards stay square at one shared size until the viewport is too narrow to hold that size
 - when the current card count is still below the row capacity, that single row is centered within the launcher
 - row capacity is based on fixed card size plus a required minimum horizontal gap, so narrow layouts drop columns before cards collide and full dashboard width can still host five cards when it truly fits
@@ -104,9 +115,10 @@ When a space has no widgets yet, the routed canvas uses a staged onboarding sequ
 Rules:
 
 - keep the example-card placeholders above the text block for now, but keep them hidden until the final reveal
-- keep the empty-space onboarding stack above the viewport midpoint with explicit top and bottom breathing room so the reserved example-button area stays higher and the CTA copy can still land below it without dropping into the onscreen-agent overlay zone
+- keep the empty-space onboarding stack starting near the top of the routed page with regular route-style top padding instead of floating around the viewport midpoint, and keep the gap between the example-button row and the CTA copy tight enough that the text reads directly beneath the examples
 - keep the empty-space runtime under `_core/spaces/onboarding/`: `_core/spaces/onboarding/empty-canvas.js` owns the DOM and animation wiring, `_core/spaces/onboarding/empty-canvas.css` owns the empty-space and loading-canvas presentation, and the first-login bootstrap plus bundled onboarding space also live in that folder
 - load the example buttons from `_core/spaces/onboarding/empty-canvas-examples.yaml` instead of a hardcoded prompt array; each entry supplies visible button text, icon, color, and a JavaScript click body compiled by `_core/spaces/onboarding/empty-canvas-examples.js`
+- keep that example-button catalog curated rather than exhaustive; weather should stay available through bundled presets such as `Daily News` or by asking the agent directly, not as a separate standalone top-level example card
 - animate each onboarding text block independently instead of rewriting one existing sentence in place, and float each visible text independently so the copy does not move as one glued cluster
 - phase 1 shows `Just an empty space here`
 - phase 2 reveals a smaller `for now` with a visibly wider gap below the primary line and enough hold time to read both intro lines comfortably
@@ -120,16 +132,18 @@ Rules:
 - prompt-style example actions should call `helpers.submitPrompt(...)`, which routes into `space.onscreenAgent.submitExamplePrompt(...)` so default API-key blockers surface `Don't forget to configure your LLM first.` and active streaming or execution surfaces `I'm working on something...` through the overlay bubble instead of silently queueing
 - those onboarding YAML entries should also declare `kind`, and the empty-canvas renderer should use the global Alpine `onscreenAgent` store getters to fade only the `kind: chat` buttons while the overlay is inactive, without making them unclickable
 - when one of those `kind: chat` buttons is clicked while the overlay store still reports an inactive state, the empty-canvas click handler should short-circuit before the YAML body runs and call `showExamplePromptInactiveBubble()` on the same global store so the blocker bubble still appears
-- example actions that should create widgets directly should copy local widget YAML bundles from `_core/spaces/onboarding/examples/` through `helpers.installOnboardingExampleWidget(...)` for one-off widgets or `helpers.installOnboardingExampleWidgets(...)` for multi-widget presets instead of referencing `dashboard_welcome/examples/...` at runtime; the multi-widget helper should batch those copied widget YAML files into one storage write before it reloads the current space so every widget mount starts together
+- example actions that should create widgets directly should copy local widget YAML bundles from `_core/spaces/onboarding/examples/` through `helpers.installOnboardingExampleWidget(...)` for one-off widgets or `helpers.installOnboardingExampleWidgets(...)` for multi-widget presets instead of referencing `dashboard_welcome/examples/...` at runtime; the multi-widget helper should batch those copied widget YAML files into one storage write before it reloads the current space so every widget mount starts together, both helper paths should stamp the installed widget YAML with `metadata.example: true`, and that final refresh should use `space.spaces.reloadCurrentSpace({ resetCamera: true })` so copied example layouts keep their stored positions while the viewport opens in the right place without a second visible camera jump
+- the bundled `WYSIWYG Editor` example is one of those local direct-install widgets: it lives in `_core/spaces/onboarding/examples/wysiwyg-editor.yaml`, stores one title-keyed `.doc` file per document under the current space `data/word-docs/` folder through app-file APIs, makes `New File` immediately create the next unused numbered document, uses a full-row load target plus inline delete behavior in its compact stored-doc list, and uses one merged browser `PDF / Print` flow for both printing and PDF export
+- the bundled `Crypto Dashboard` preset is one of those local multi-widget bundles: it keeps a copied crypto ticker plus a directly rendered one-month `BTC vs S&P 500` chart and a crypto RSS list together under `_core/spaces/onboarding/examples/crypto-dashboard/`
 - when one of those onboarding widget bundles is copied from a first-party demo widget, keep the local snapshot under `_core/spaces/onboarding/examples/`; single-widget copies should still strip source-demo placement fields such as `col` or `row` so normal placement applies, but curated multi-widget presets that intentionally recreate a demo layout should preserve copied `col`, `row`, `cols`, and `rows` values
 - those local onboarding copies may also rename demo-specific widget ids or names into cleaner generic ones when the copied widget is meant to stand alone in onboarding, so a generic weather card does not keep an `iphone-...` name after it leaves the demo bundle
 - when one curated onboarding preset combines multiple related widgets, keep any small shared user-owned preference files aligned across those copied widgets so feed or location changes stay coherent inside that preset
 - curated onboarding presets cloned from welcome examples may also keep paired widget surfaces together, so a copied YouTube list-and-player pair should stay local to one onboarding preset folder and keep its preserved layout there
-- when a caller intentionally batches several onboarding widget writes into the current space, metadata saves may still use `refresh: false`, but the preset helper should persist the widget bundle through one storage-level batched write and then issue one final reload so widget renderers start together instead of waiting behind several sequential widget saves
+- when a caller intentionally batches several onboarding widget writes into the current space, metadata saves may still use `refresh: false`, but the preset helper should persist the widget bundle through one storage-level batched write and then issue one final `reloadCurrentSpace({ resetCamera: true })` pass so widget renderers start together instead of waiting behind several sequential widget saves
 - compact onboarding article-detail cards should prefer making the image and headline themselves open the article, and should avoid redundant header labels or separate open buttons when that vertical space is better spent on summary text; related compact news cards, including the Daily News top-headline widget, should also rely on the widget shell's built-in reload control instead of adding duplicate in-card refresh buttons
 - if one of those onboarding widget bundles relies on YouTube embedding, prefer copying the proven `_core/dashboard_welcome/examples/agent-zero-videos/widgets/yt-video-player.yaml` loading pattern into the local onboarding copy and only swap the initial video id or feed source
 - example button icon ligatures and accent colors should also come from that onboarding YAML so chat actions and bundled widget-clone actions can present different button chrome without hardcoded per-example styling in JS
-- the same imported helper module also exposes direct runtime access through `helpers.getSpaceRuntime()`, `helpers.getSpacesRuntime()`, and `helpers.getOnscreenAgentRuntime()` for future non-prompt examples
+- the same imported helper module also exposes direct runtime access through `helpers.getSpaceRuntime()`, `helpers.getSpacesRuntime()`, `helpers.getOnscreenAgentRuntime()`, and `helpers.repositionCurrentSpace()` for future non-prompt examples
 - the one-time empty-space onboarding marker is client-owned browser UI state stored per user under `space.spaces.emptyCanvasSeen.<username>` with `sessionStorage` and `localStorage` mirrors; it is not part of persisted `space.yaml`
 - reduced-motion users should not be forced through the staged animation; show the stable final copy and buttons immediately
 

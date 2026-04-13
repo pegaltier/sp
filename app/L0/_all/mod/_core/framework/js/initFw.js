@@ -5,6 +5,7 @@ import * as _modals from "./modals.js";
 import * as _components from "./components.js";
 import * as _icons from "./icons.js";
 import { registerAlpineMagic } from "./confirmClick.js";
+import { HTML_EXTENSION_READY_ATTRIBUTE } from "./extensions.js";
 
 initializeRuntime({
   proxyPath: "/api/proxy"
@@ -18,6 +19,24 @@ await initializer.initialize();
 await import("./alpine.min.js");
 
 const Alpine = globalThis.Alpine;
+
+const warnAlpine = (message, el) => {
+  console.warn(`Alpine Warning: ${message}`, el);
+};
+
+const insertTeleportNode = (node, target, modifiers = []) => {
+  if (modifiers.includes("prepend") && target.parentNode) {
+    target.parentNode.insertBefore(node, target);
+    return;
+  }
+
+  if (modifiers.includes("append") && target.parentNode) {
+    target.parentNode.insertBefore(node, target.nextSibling);
+    return;
+  }
+
+  target.appendChild(node);
+};
 
 
 // add x-destroy directive to alpine
@@ -37,6 +56,134 @@ Alpine.directive(
       onCreate();
     }
   );
+
+  Alpine.directive(
+    "inject",
+    (el, { modifiers, expression }, { cleanup }) => {
+      if (el.tagName.toLowerCase() !== "template") {
+        warnAlpine("x-inject can only be used on a <template> tag", el);
+        return;
+      }
+
+      const selector = typeof expression === "string" ? expression.trim() : "";
+      if (!selector) return;
+
+      const injected = el.content.cloneNode(true).firstElementChild;
+      if (!injected) return;
+
+      let disposed = false;
+      let observer = null;
+      let invalidSelector = false;
+
+      el._x_teleport = injected;
+      injected._x_teleportBack = el;
+      el.setAttribute("data-teleport-template", true);
+      injected.setAttribute("data-teleport-target", true);
+
+      if (Array.isArray(el._x_forwardEvents)) {
+        el._x_forwardEvents.forEach((eventName) => {
+          injected.addEventListener(eventName, (event) => {
+            event.stopPropagation();
+            el.dispatchEvent(new event.constructor(event.type, event));
+          });
+        });
+      }
+
+      Alpine.addScopeToNode(injected, {}, el);
+
+      const stopObserver = () => {
+        if (!observer) return;
+        observer.disconnect();
+        observer = null;
+      };
+
+      const findTarget = () => {
+        if (invalidSelector) return null;
+
+        try {
+          const target = document.querySelector(selector);
+          if (!(target instanceof Element)) {
+            return null;
+          }
+
+          if (
+            target.tagName.toLowerCase() === "x-extension" &&
+            target.getAttribute(HTML_EXTENSION_READY_ATTRIBUTE) !== "true"
+          ) {
+            return null;
+          }
+
+          return target;
+        } catch (error) {
+          invalidSelector = true;
+          warnAlpine(`Invalid x-inject selector: "${selector}"`, el);
+          console.error(error);
+          return null;
+        }
+      };
+
+      const mountIntoTarget = (target) => {
+        if (disposed || !target) return;
+
+        if (injected.parentNode === target) {
+          return;
+        }
+
+        Alpine.mutateDom(() => {
+          insertTeleportNode(injected, target, modifiers);
+
+          if (!injected._x_marker) {
+            Alpine.skipDuringClone(() => {
+              Alpine.initTree(injected);
+            })();
+          }
+        });
+      };
+
+      const reconcileMount = () => {
+        const target = findTarget();
+        if (!target) return;
+
+        mountIntoTarget(target);
+      };
+
+      reconcileMount();
+
+      if (typeof MutationObserver === "function") {
+        observer = new MutationObserver(() => {
+          if (disposed || !el.isConnected || invalidSelector) {
+            stopObserver();
+            return;
+          }
+
+          reconcileMount();
+        });
+
+        observer.observe(document.documentElement, {
+          attributeFilter: [HTML_EXTENSION_READY_ATTRIBUTE],
+          attributes: true,
+          childList: true,
+          subtree: true
+        });
+      }
+
+      el._x_teleportPutBack = () => {
+        reconcileMount();
+      };
+
+      cleanup(() => {
+        disposed = true;
+        stopObserver();
+
+        Alpine.mutateDom(() => {
+          injected.remove();
+          if (injected._x_marker) {
+            Alpine.destroyTree(injected);
+          }
+        });
+      });
+    }
+  ).before("teleport");
 
   const resolveSelector = (expression, evaluateLater, cb) => {
     if (typeof expression !== "string" || !expression.trim()) return;

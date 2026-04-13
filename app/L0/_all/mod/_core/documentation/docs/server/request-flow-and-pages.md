@@ -104,9 +104,10 @@ Clustered writes are ordered through the primary watchdog owner and the shared s
 Current rules:
 
 - after a worker finishes a mutating request, it commits the changed logical app paths to the primary once
-- the primary updates the authoritative replicated state, schedules any debounced writable-layer Git history commit for the rebuilt owner roots, and broadcasts deltas or snapshots asynchronously; writes do not wait for every worker to acknowledge
+- the primary updates the authoritative replicated state, schedules any debounced writable-layer Git history commit for the rebuilt owner roots, and broadcasts deltas or snapshots asynchronously; native local-history work then runs through an async per-owner queue, and writes do not wait for every worker to acknowledge or for Git commits to finish
 - primary-owned maintenance jobs use that same watchdog mutation path after each filesystem change; they do not bypass the replicated-state refresh flow
 - responses advertise the worker's current replicated version through `Space-State-Version`
 - responses also advertise the handling worker number through `Space-Worker`
-- the frontend fetch wrapper carries the highest seen `Space-State-Version` on follow-up same-origin requests
-- if a request lands on a worker that is behind the requested version, the router waits briefly for catch-up before handling the request or returns a retryable `503`
+- the primary watchdog seeds that version space from a long startup epoch and then increments monotonically, so a restarted runtime does not fall behind a browser's previously observed version while delta replay stays exact
+- the frontend fetch wrapper carries the highest seen `Space-State-Version` on follow-up same-origin requests and automatically retries the router's bounded sync `503` responses a few times
+- if a request lands on a worker that is behind the requested version, the worker first pulls from the primary immediately, then waits briefly for local catch-up before handling the request or returns a retryable `503`

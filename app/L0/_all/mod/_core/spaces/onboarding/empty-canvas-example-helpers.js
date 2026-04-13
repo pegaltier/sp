@@ -47,12 +47,37 @@ export function getOnscreenAgentRuntime() {
   return runtime.onscreenAgent;
 }
 
+export async function repositionCurrentSpace(options = {}) {
+  const spacesRuntime = getSpacesRuntime();
+
+  if (typeof spacesRuntime.repositionCurrentSpace !== "function") {
+    return null;
+  }
+
+  return spacesRuntime.repositionCurrentSpace(options);
+}
+
 export async function submitPrompt(promptText, options = {}) {
   return getOnscreenAgentRuntime().submitExamplePrompt(promptText, options);
 }
 
 export async function sendPrompt(promptText, options = {}) {
   return submitPrompt(promptText, options);
+}
+
+function buildOnboardingExampleWidgetMetadata(options = {}) {
+  const inputMetadata =
+    options &&
+    typeof (options.metadata ?? options.meta) === "object" &&
+    (options.metadata ?? options.meta) &&
+    !Array.isArray(options.metadata ?? options.meta)
+      ? (options.metadata ?? options.meta)
+      : {};
+
+  return {
+    ...inputMetadata,
+    example: true
+  };
 }
 
 function normalizeOnboardingExampleWidgetFileName(fileName) {
@@ -120,11 +145,38 @@ export async function loadOnboardingExampleWidgetSources(fileNames) {
 }
 
 export async function installOnboardingExampleWidget(fileName, options = {}) {
+  const runtime = getSpaceRuntime();
+  const spacesRuntime = getSpacesRuntime();
+  const upsertOptions = { ...options };
+  const refreshAfterInstall = upsertOptions.refresh !== false;
+  const repositionAfterInstall = upsertOptions.reposition !== false && refreshAfterInstall;
+  const currentSpaceId = String(runtime.current?.id || "").trim();
+  const targetSpaceId = String(upsertOptions.spaceId || currentSpaceId || "").trim();
+  const canReloadCurrentSpace =
+    currentSpaceId &&
+    targetSpaceId === currentSpaceId &&
+    typeof spacesRuntime.reloadCurrentSpace === "function";
+
+  delete upsertOptions.refresh;
+  delete upsertOptions.reposition;
+
   const source = await loadOnboardingExampleWidgetSource(fileName);
-  return getSpacesRuntime().upsertWidget({
-    ...options,
+  const result = await spacesRuntime.upsertWidget({
+    ...upsertOptions,
+    ...(canReloadCurrentSpace && refreshAfterInstall ? { refresh: false } : {}),
+    metadata: buildOnboardingExampleWidgetMetadata(upsertOptions),
     source
   });
+
+  if (canReloadCurrentSpace && refreshAfterInstall) {
+    await spacesRuntime.reloadCurrentSpace({
+      resetCamera: repositionAfterInstall
+    });
+  } else if (repositionAfterInstall && currentSpaceId && targetSpaceId === currentSpaceId) {
+    await repositionCurrentSpace();
+  }
+
+  return result;
 }
 
 export async function installOnboardingExampleWidgets(fileNames, options = {}) {
@@ -132,17 +184,20 @@ export async function installOnboardingExampleWidgets(fileNames, options = {}) {
   const runtime = getSpaceRuntime();
   const spacesRuntime = getSpacesRuntime();
   const refreshAfterInstall = options.refresh !== false;
+  const repositionAfterInstall = options.reposition !== false && refreshAfterInstall;
   const upsertOptions = { ...options };
   const currentSpaceId = String(runtime.current?.id || "").trim();
   const targetSpaceId = String(upsertOptions.spaceId || currentSpaceId || "").trim();
 
   delete upsertOptions.refresh;
+  delete upsertOptions.reposition;
 
   const installResult = await upsertWidgetsInStorage({
     ...upsertOptions,
     spaceId: targetSpaceId,
     widgets: widgetEntries.map((entry) => ({
       ...upsertOptions,
+      metadata: buildOnboardingExampleWidgetMetadata(upsertOptions),
       source: entry.source
     }))
   });
@@ -153,7 +208,9 @@ export async function installOnboardingExampleWidgets(fileNames, options = {}) {
     targetSpaceId === currentSpaceId &&
     typeof spacesRuntime.reloadCurrentSpace === "function"
   ) {
-    await spacesRuntime.reloadCurrentSpace();
+    await spacesRuntime.reloadCurrentSpace({
+      resetCamera: repositionAfterInstall
+    });
   }
 
   return Array.isArray(installResult?.widgetResults) ? installResult.widgetResults : [];

@@ -22,15 +22,15 @@ Current space:
 - listWidgets()
 - readWidget(id)
 - seeWidget(id, full=false)
-- patchWidget(id, { name?, cols?, rows?, col?, row?, edits? })
-- renderWidget({ id, name, cols, rows, renderer })
+- patchWidget(id, { name?, cols?, rows?, col?, row?, metadata?, edits? })
+- renderWidget({ id, name, cols, rows, metadata?, renderer })
 - reloadWidget(id)
-- removeWidget(...), removeWidgets(...), removeAllWidgets()
-- rearrangeWidgets(...), toggleWidgets(...), repairLayout(), rearrange(), reload()
+- reposition(), removeWidget(...), removeWidgets(...), removeAllWidgets()
+- rearrangeWidgets(...), toggleWidgets(...), repairLayout(), rearrange(), reload(options?)
 
 Cross-space:
 - listSpaces(), createSpace({ title }), openSpace(id), removeSpace(id)
-- upsertWidget(...), patchWidget(...), removeWidgets(...), removeAllWidgets(...)
+- repositionCurrentSpace(options?), reloadCurrentSpace(options?), upsertWidget(...), patchWidget(...), removeWidgets(...), removeAllWidgets(...)
 
 catalog and readback
 - Prefer space.current.* when already inside a space
@@ -42,6 +42,7 @@ example|Example|expanded, 4x3 widget
 - On the next turn, read the visible id row directly, for example `snake-game|Snake|...` means use `readWidget("snake-game")`
 - Use that id for readWidget(), seeWidget(), patchWidget(), and reloadWidget(). Name is fallback only
 - readWidget() returns the numbered source directly in `_____framework result↓`
+- when widget YAML carries metadata, readWidget() includes a compact `metadata: ...` line before `renderer↓`
 - seeWidget() returns the current rendered widget HTML directly in `_____framework result↓`
 - `seeWidget(id)` strips script/style tags, inline handlers, class lists, ids, and data attrs by default
 - Use `seeWidget(id, true)` only when you explicitly need the full live innerHTML
@@ -129,7 +130,7 @@ patch vs rewrite
 - Use patchWidget() for bounded edits to an existing renderer
 - Use renderWidget() for new widgets or full rewrites
 - patchWidget() is not a whole-renderer rewrite API. Do not use broad guesses like 0-999
-- Use name, cols, rows, col, row for metadata changes. Use edits only for renderer lines
+- Use name, cols, rows, col, row, and metadata for widget metadata changes. Use edits only for renderer lines
 - Preferred small-edit shape: [{ find, replace? }]
 - find must be one exact unique snippet copied from readWidget() output or from Current Widget `source↓`
 - Omit replace on a find edit to delete that snippet

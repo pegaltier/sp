@@ -4,24 +4,11 @@
 
 .dashboard-pages-launcher-shell {
   display: grid;
-  gap: 0.55rem;
-  justify-items: center;
+  gap: 1.15rem;
 }
 
-.dashboard-pages-launcher-header {
-  width: 100%;
-  display: grid;
-  justify-items: center;
-}
-
-.dashboard-pages-launcher-eyebrow {
-  margin: 0;
-  font-size: 0.72rem;
-  line-height: 1;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
+.dashboard-pages-launcher .dashboard-section-title {
+  margin-top: 0.95rem;
 }
 
 .dashboard-pages-launcher-empty {
@@ -123,10 +110,6 @@
 }
 
 @media (max-width: 640px) {
-  .dashboard-pages-launcher-shell {
-    gap: 0.5rem;
-  }
-
   .dashboard-pages-launcher-row {
     gap: 0.55rem;
   }

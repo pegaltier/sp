@@ -4,7 +4,7 @@
   </head>
   <body>
     <section class="space-panel dashboard-view" x-data>
-      <template x-teleport='[id="_core/onscreen_menu/bar_start"]'>
+      <template x-inject='[id="_core/onscreen_menu/bar_start"]'>
         <div class="dashboard-topbar-controls">
           <x-extension id="_core/dashboard/topbar_primary"></x-extension>
           <x-extension id="_core/dashboard/topbar_secondary"></x-extension>

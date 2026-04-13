@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -15,6 +15,8 @@ import {
   normalizeHistoryIgnoredPaths,
   sanitizeRemoteUrl
 } from "./shared.js";
+
+const nativeLocalHistoryRepoQueues = new Map();
 
 function createGitError(args, stderr, stdout) {
   const message = String(stderr || stdout || "git command failed").trim();
@@ -39,12 +41,64 @@ function runGit(projectRoot, args, { check = true, cwd = projectRoot } = {}) {
   return result;
 }
 
+function runGitAsync(projectRoot, args, { check = true, cwd = projectRoot } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("git", args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+
+    child.stdout.on("data", (chunk) => {
+      stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    child.stderr.on("data", (chunk) => {
+      stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+
+    child.once("error", (error) => {
+      reject(error);
+    });
+    child.once("close", (status) => {
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8");
+      const result = {
+        status: Number.isInteger(status) ? status : 1,
+        stderr,
+        stdout
+      };
+
+      if (check && result.status !== 0) {
+        reject(createGitError(args, result.stderr, result.stdout));
+        return;
+      }
+
+      resolve(result);
+    });
+  });
+}
+
 function readGit(projectRoot, args, options) {
   return runGit(projectRoot, args, options).stdout.trim();
 }
 
 function tryReadGit(projectRoot, args, options) {
   const result = runGit(projectRoot, args, {
+    ...options,
+    check: false
+  });
+
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+async function readGitAsync(projectRoot, args, options) {
+  const result = await runGitAsync(projectRoot, args, options);
+  return result.stdout.trim();
+}
+
+async function tryReadGitAsync(projectRoot, args, options) {
+  const result = await runGitAsync(projectRoot, args, {
     ...options,
     check: false
   });
@@ -116,9 +170,29 @@ function hasLocalBranch(projectRoot, branchName) {
   return result.status === 0;
 }
 
-function hasGitHistoryCommits(repoRoot) {
-  const result = runGit(repoRoot, ["rev-parse", "--verify", "--quiet", "HEAD"], { check: false });
+async function hasGitHistoryCommits(repoRoot) {
+  const result = await runGitAsync(repoRoot, ["rev-parse", "--verify", "--quiet", "HEAD"], { check: false });
   return result.status === 0;
+}
+
+function runQueuedNativeLocalHistoryRepoTask(repoRoot, task) {
+  const repoKey = path.resolve(String(repoRoot || ""));
+  const previousBarrier = nativeLocalHistoryRepoQueues.get(repoKey) || Promise.resolve();
+  const runPromise = previousBarrier.catch(() => {}).then(task);
+  const nextBarrier = runPromise.then(
+    () => undefined,
+    () => undefined
+  );
+
+  nativeLocalHistoryRepoQueues.set(repoKey, nextBarrier);
+
+  void nextBarrier.finally(() => {
+    if (nativeLocalHistoryRepoQueues.get(repoKey) === nextBarrier) {
+      nativeLocalHistoryRepoQueues.delete(repoKey);
+    }
+  });
+
+  return runPromise;
 }
 
 function parseNativeNameStatusLines(fileLines = [], ignoredPaths = []) {
@@ -163,15 +237,15 @@ function parseNativeHistoryLog(output, ignoredPaths = []) {
   }).filter((entry) => entry.hash);
 }
 
-function readStagedHistoryFiles(repoRoot) {
-  return readGit(repoRoot, ["diff", "--cached", "--name-only", "-z"])
+async function readStagedHistoryFiles(repoRoot) {
+  return (await readGitAsync(repoRoot, ["diff", "--cached", "--name-only", "-z"]))
     .split("\0")
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
-function resolveHistoryCommit(repoRoot, commitHash) {
-  const revision = tryReadGit(repoRoot, ["rev-parse", "--verify", `${commitHash}^{commit}`]);
+async function resolveHistoryCommit(repoRoot, commitHash) {
+  const revision = await tryReadGitAsync(repoRoot, ["rev-parse", "--verify", `${commitHash}^{commit}`]);
 
   if (!revision) {
     throw new Error(`Git history commit not found: ${commitHash}`);
@@ -190,27 +264,27 @@ function normalizeHistoryDiffPath(filePath) {
   return normalizedPath;
 }
 
-function readHistoryHead(repoRoot) {
-  return tryReadGit(repoRoot, ["rev-parse", "--verify", "HEAD"]);
+async function readHistoryHead(repoRoot) {
+  return tryReadGitAsync(repoRoot, ["rev-parse", "--verify", "HEAD"]);
 }
 
-function preserveHistoryHeadRef(repoRoot, reason = "snapshot") {
-  const hash = readHistoryHead(repoRoot);
+async function preserveHistoryHeadRef(repoRoot, reason = "snapshot") {
+  const hash = await readHistoryHead(repoRoot);
 
   if (!hash) {
     return "";
   }
 
-  const shortHash = readGit(repoRoot, ["rev-parse", "--short", hash]);
+  const shortHash = await readGitAsync(repoRoot, ["rev-parse", "--short", hash]);
   const safeReason = String(reason || "snapshot").replace(/[^a-z0-9_-]+/giu, "-").replace(/^-|-$/gu, "") || "snapshot";
   const refName = `refs/space-history/${safeReason}/${Date.now()}-${shortHash}`;
 
-  runGit(repoRoot, ["update-ref", refName, hash]);
+  await runGitAsync(repoRoot, ["update-ref", refName, hash]);
   return refName;
 }
 
-function readHistoryCommitFiles(repoRoot, commitHash, ignoredPaths = []) {
-  const result = runGit(
+async function readHistoryCommitFiles(repoRoot, commitHash, ignoredPaths = []) {
+  const result = await runGitAsync(
     repoRoot,
     [
       "diff-tree",
@@ -266,8 +340,8 @@ function normalizeHistoryPreviewOperation(operation = "") {
   return "travel";
 }
 
-function readHistoryDiffFiles(repoRoot, fromHash, toHash, ignoredPaths = []) {
-  const result = runGit(
+async function readHistoryDiffFiles(repoRoot, fromHash, toHash, ignoredPaths = []) {
+  const result = await runGitAsync(
     repoRoot,
     [
       "diff",
@@ -292,8 +366,8 @@ function readHistoryDiffFiles(repoRoot, fromHash, toHash, ignoredPaths = []) {
   );
 }
 
-function readHistoryDiffPatch(repoRoot, fromHash, toHash, filePath) {
-  const result = runGit(
+async function readHistoryDiffPatch(repoRoot, fromHash, toHash, filePath) {
+  const result = await runGitAsync(
     repoRoot,
     [
       "diff",
@@ -311,8 +385,8 @@ function readHistoryDiffPatch(repoRoot, fromHash, toHash, filePath) {
   return result.status === 0 ? result.stdout : "";
 }
 
-function readRevertedCommitPatch(repoRoot, commitHash, filePath) {
-  const result = runGit(
+async function readRevertedCommitPatch(repoRoot, commitHash, filePath) {
+  const result = await runGitAsync(
     repoRoot,
     [
       "show",
@@ -540,190 +614,228 @@ export async function createNativeGitHistoryClient({ repoRoot }) {
 
   const resolvedRepoRoot = path.resolve(String(repoRoot || ""));
 
+  async function ensureHistoryRepository() {
+    fs.mkdirSync(resolvedRepoRoot, { recursive: true });
+
+    if (!fs.existsSync(path.join(resolvedRepoRoot, ".git"))) {
+      await runGitAsync(resolvedRepoRoot, ["init"], {
+        cwd: resolvedRepoRoot
+      });
+    }
+  }
+
   const client = {
     name: "native",
     label: "native git backend",
 
     async ensureRepository() {
-      fs.mkdirSync(resolvedRepoRoot, { recursive: true });
-
-      if (!fs.existsSync(path.join(resolvedRepoRoot, ".git"))) {
-        runGit(resolvedRepoRoot, ["init"], {
-          cwd: resolvedRepoRoot
-        });
-      }
+      return runQueuedNativeLocalHistoryRepoTask(resolvedRepoRoot, async () => {
+        await ensureHistoryRepository();
+      });
     },
 
     async commitAll(options = {}) {
-      await this.ensureRepository();
-      runGit(resolvedRepoRoot, ["add", "-A", "--", "."]);
-      const ignoredPaths = [...normalizeHistoryIgnoredPaths(options.ignoredPaths)];
+      return runQueuedNativeLocalHistoryRepoTask(resolvedRepoRoot, async () => {
+        await ensureHistoryRepository();
+        await runGitAsync(resolvedRepoRoot, ["add", "-A", "--", "."]);
+        const ignoredPaths = [...normalizeHistoryIgnoredPaths(options.ignoredPaths)];
 
-      if (ignoredPaths.length > 0) {
-        runGit(resolvedRepoRoot, ["rm", "--cached", "--ignore-unmatch", "--", ...ignoredPaths]);
-      }
+        if (ignoredPaths.length > 0) {
+          await runGitAsync(resolvedRepoRoot, ["rm", "--cached", "--ignore-unmatch", "--", ...ignoredPaths]);
+        }
 
-      const stagedFiles = readStagedHistoryFiles(resolvedRepoRoot);
-      const changedFiles = filterHistoryChangedFiles(stagedFiles, ignoredPaths);
-      if (stagedFiles.length === 0) {
+        const stagedFiles = await readStagedHistoryFiles(resolvedRepoRoot);
+        const changedFiles = filterHistoryChangedFiles(stagedFiles, ignoredPaths);
+        if (stagedFiles.length === 0) {
+          return {
+            backend: this.name,
+            changedFiles: [],
+            committed: false,
+            hash: "",
+            shortHash: ""
+          };
+        }
+
+        await runGitAsync(resolvedRepoRoot, [
+          "-c",
+          `user.name=${String(options.authorName || "Space Agent")}`,
+          "-c",
+          `user.email=${String(options.authorEmail || "space-agent@local")}`,
+          "commit",
+          "--no-gpg-sign",
+          "-m",
+          String(options.message || "Update customware history")
+        ]);
+
+        const hash = await readGitAsync(resolvedRepoRoot, ["rev-parse", "HEAD"]);
+
         return {
           backend: this.name,
-          changedFiles: [],
-          committed: false,
-          hash: "",
-          shortHash: ""
+          changedFiles,
+          committed: true,
+          hash,
+          shortHash: await readGitAsync(resolvedRepoRoot, ["rev-parse", "--short", hash])
         };
-      }
-
-      runGit(resolvedRepoRoot, [
-        "-c",
-        `user.name=${String(options.authorName || "Space Agent")}`,
-        "-c",
-        `user.email=${String(options.authorEmail || "space-agent@local")}`,
-        "commit",
-        "--no-gpg-sign",
-        "-m",
-        String(options.message || "Update customware history")
-      ]);
-
-      const hash = readGit(resolvedRepoRoot, ["rev-parse", "HEAD"]);
-
-      return {
-        backend: this.name,
-        changedFiles,
-        committed: true,
-        hash,
-        shortHash: readGit(resolvedRepoRoot, ["rev-parse", "--short", hash])
-      };
+      });
     },
 
     async listCommits(options = {}) {
-      await this.ensureRepository();
+      return runQueuedNativeLocalHistoryRepoTask(resolvedRepoRoot, async () => {
+        await ensureHistoryRepository();
 
-      if (!hasGitHistoryCommits(resolvedRepoRoot)) {
-        return {
-          commits: [],
-          currentHash: "",
-          hasMore: false,
-          limit: Math.max(1, Math.min(500, Number(options.limit) || 50)),
-          offset: Math.max(0, Number(options.offset) || 0),
-          total: 0
-        };
-      }
-
-      const limit = Math.max(1, Math.min(500, Number(options.limit) || 50));
-      const offset = Math.max(0, Number(options.offset) || 0);
-      const pathspecs = buildHistoryFilterPathspecs(options.fileFilter);
-      const result = runGit(
-        resolvedRepoRoot,
-        [
-          "log",
-          "HEAD",
-          "--all",
-          `--max-count=${limit + 1}`,
-          `--skip=${offset}`,
-          "--date=iso-strict",
-          "--pretty=format:%x1e%H%x00%h%x00%cI%x00%s",
-          "--find-renames",
-          "--name-status",
-          "--",
-          ...pathspecs
-        ],
-        { check: false }
-      );
-
-      if (result.status !== 0) {
-        return {
-          commits: [],
-          currentHash: readHistoryHead(resolvedRepoRoot) || "",
-          hasMore: false,
-          limit,
-          offset,
-          total: 0
-        };
-      }
-
-      const parsedCommits = parseNativeHistoryLog(result.stdout, options.ignoredPaths);
-      const commits = parsedCommits.slice(0, limit).map((commit) => {
-        if (pathspecs.length === 0) {
-          return commit;
+        if (!(await hasGitHistoryCommits(resolvedRepoRoot))) {
+          return {
+            commits: [],
+            currentHash: "",
+            hasMore: false,
+            limit: Math.max(1, Math.min(500, Number(options.limit) || 50)),
+            offset: Math.max(0, Number(options.offset) || 0),
+            total: 0
+          };
         }
 
-        const files = readHistoryCommitFiles(resolvedRepoRoot, commit.hash, options.ignoredPaths);
+        const limit = Math.max(1, Math.min(500, Number(options.limit) || 50));
+        const offset = Math.max(0, Number(options.offset) || 0);
+        const pathspecs = buildHistoryFilterPathspecs(options.fileFilter);
+        const result = await runGitAsync(
+          resolvedRepoRoot,
+          [
+            "log",
+            "HEAD",
+            "--all",
+            `--max-count=${limit + 1}`,
+            `--skip=${offset}`,
+            "--date=iso-strict",
+            "--pretty=format:%x1e%H%x00%h%x00%cI%x00%s",
+            "--find-renames",
+            "--name-status",
+            "--",
+            ...pathspecs
+          ],
+          { check: false }
+        );
+
+        if (result.status !== 0) {
+          return {
+            commits: [],
+            currentHash: (await readHistoryHead(resolvedRepoRoot)) || "",
+            hasMore: false,
+            limit,
+            offset,
+            total: 0
+          };
+        }
+
+        const parsedCommits = parseNativeHistoryLog(result.stdout, options.ignoredPaths);
+        const commits = await Promise.all(
+          parsedCommits.slice(0, limit).map(async (commit) => {
+            if (pathspecs.length === 0) {
+              return commit;
+            }
+
+            const files = await readHistoryCommitFiles(resolvedRepoRoot, commit.hash, options.ignoredPaths);
+
+            return {
+              ...commit,
+              changedFiles: getHistoryChangedFilePaths(files),
+              files
+            };
+          })
+        );
+        const countResult = await runGitAsync(
+          resolvedRepoRoot,
+          [
+            "rev-list",
+            "--count",
+            "HEAD",
+            "--all",
+            "--",
+            ...pathspecs
+          ],
+          { check: false }
+        );
+        const total = countResult.status === 0
+          ? Math.max(0, Number.parseInt(countResult.stdout.trim(), 10) || 0)
+          : null;
 
         return {
-          ...commit,
-          changedFiles: getHistoryChangedFilePaths(files),
-          files
+          commits,
+          currentHash: (await readHistoryHead(resolvedRepoRoot)) || "",
+          hasMore: parsedCommits.length > limit,
+          limit,
+          offset,
+          total
         };
       });
-      const countResult = runGit(
-        resolvedRepoRoot,
-        [
-          "rev-list",
-          "--count",
-          "HEAD",
-          "--all",
-          "--",
-          ...pathspecs
-        ],
-        { check: false }
-      );
-      const total = countResult.status === 0 ? Math.max(0, Number.parseInt(countResult.stdout.trim(), 10) || 0) : null;
-
-      return {
-        commits,
-        currentHash: readHistoryHead(resolvedRepoRoot) || "",
-        hasMore: parsedCommits.length > limit,
-        limit,
-        offset,
-        total
-      };
     },
 
     async getCommitDiff(options = {}) {
-      await this.ensureRepository();
-      const hash = resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
-      const filePath = normalizeHistoryDiffPath(options.filePath || options.path || "");
-      const showResult = runGit(
-        resolvedRepoRoot,
-        [
-          "show",
-          "--format=",
-          "--find-renames",
-          "--patch",
-          "--no-ext-diff",
-          hash,
-          "--",
-          filePath
-        ],
-        { check: false }
-      );
-      const files = readHistoryCommitFiles(resolvedRepoRoot, hash, options.ignoredPaths);
+      return runQueuedNativeLocalHistoryRepoTask(resolvedRepoRoot, async () => {
+        await ensureHistoryRepository();
+        const hash = await resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
+        const filePath = normalizeHistoryDiffPath(options.filePath || options.path || "");
+        const showResult = await runGitAsync(
+          resolvedRepoRoot,
+          [
+            "show",
+            "--format=",
+            "--find-renames",
+            "--patch",
+            "--no-ext-diff",
+            hash,
+            "--",
+            filePath
+          ],
+          { check: false }
+        );
+        const files = await readHistoryCommitFiles(resolvedRepoRoot, hash, options.ignoredPaths);
 
-      return {
-        backend: this.name,
-        file: files.find((entry) => entry.path === filePath || entry.oldPath === filePath) || {
-          action: "modified",
-          oldPath: "",
-          path: filePath,
-          status: "M"
-        },
-        hash,
-        patch: showResult.status === 0 ? showResult.stdout : "",
-        shortHash: readGit(resolvedRepoRoot, ["rev-parse", "--short", hash])
-      };
+        return {
+          backend: this.name,
+          file: files.find((entry) => entry.path === filePath || entry.oldPath === filePath) || {
+            action: "modified",
+            oldPath: "",
+            path: filePath,
+            status: "M"
+          },
+          hash,
+          patch: showResult.status === 0 ? showResult.stdout : "",
+          shortHash: await readGitAsync(resolvedRepoRoot, ["rev-parse", "--short", hash])
+        };
+      });
     },
 
     async previewOperation(options = {}) {
-      await this.ensureRepository();
-      const operation = normalizeHistoryPreviewOperation(options.operation);
-      const hash = resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
-      const currentHash = readHistoryHead(resolvedRepoRoot) || "";
-      const filePath = options.filePath ? normalizeHistoryDiffPath(options.filePath) : "";
+      return runQueuedNativeLocalHistoryRepoTask(resolvedRepoRoot, async () => {
+        await ensureHistoryRepository();
+        const operation = normalizeHistoryPreviewOperation(options.operation);
+        const hash = await resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
+        const currentHash = (await readHistoryHead(resolvedRepoRoot)) || "";
+        const filePath = options.filePath ? normalizeHistoryDiffPath(options.filePath) : "";
 
-      if (operation === "revert") {
-        const files = readHistoryCommitFiles(resolvedRepoRoot, hash, options.ignoredPaths).map(invertHistoryFileEntry);
+        if (operation === "revert") {
+          const files = (await readHistoryCommitFiles(resolvedRepoRoot, hash, options.ignoredPaths)).map(
+            invertHistoryFileEntry
+          );
+
+          return {
+            backend: this.name,
+            changedFiles: getHistoryChangedFilePaths(files),
+            currentHash,
+            file: filePath
+              ? files.find((entry) => entry.path === filePath || entry.oldPath === filePath) || null
+              : null,
+            files,
+            hash,
+            operation,
+            patch: filePath ? await readRevertedCommitPatch(resolvedRepoRoot, hash, filePath) : "",
+            shortHash: await readGitAsync(resolvedRepoRoot, ["rev-parse", "--short", hash])
+          };
+        }
+
+        const files = currentHash
+          ? await readHistoryDiffFiles(resolvedRepoRoot, currentHash, hash, options.ignoredPaths)
+          : [];
 
         return {
           backend: this.name,
@@ -735,78 +847,66 @@ export async function createNativeGitHistoryClient({ repoRoot }) {
           files,
           hash,
           operation,
-          patch: filePath ? readRevertedCommitPatch(resolvedRepoRoot, hash, filePath) : "",
-          shortHash: readGit(resolvedRepoRoot, ["rev-parse", "--short", hash])
+          patch: currentHash && filePath ? await readHistoryDiffPatch(resolvedRepoRoot, currentHash, hash, filePath) : "",
+          shortHash: await readGitAsync(resolvedRepoRoot, ["rev-parse", "--short", hash])
         };
-      }
-
-      const files = currentHash ? readHistoryDiffFiles(resolvedRepoRoot, currentHash, hash, options.ignoredPaths) : [];
-
-      return {
-        backend: this.name,
-        changedFiles: getHistoryChangedFilePaths(files),
-        currentHash,
-        file: filePath
-          ? files.find((entry) => entry.path === filePath || entry.oldPath === filePath) || null
-          : null,
-        files,
-        hash,
-        operation,
-        patch: currentHash && filePath ? readHistoryDiffPatch(resolvedRepoRoot, currentHash, hash, filePath) : "",
-        shortHash: readGit(resolvedRepoRoot, ["rev-parse", "--short", hash])
-      };
+      });
     },
 
     async rollbackToCommit(options = {}) {
-      await this.ensureRepository();
-      const hash = resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
-      const currentHash = readHistoryHead(resolvedRepoRoot);
+      return runQueuedNativeLocalHistoryRepoTask(resolvedRepoRoot, async () => {
+        await ensureHistoryRepository();
+        const hash = await resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
+        const currentHash = await readHistoryHead(resolvedRepoRoot);
 
-      if (currentHash && currentHash !== hash) {
-        preserveHistoryHeadRef(resolvedRepoRoot, "rollback");
-      }
+        if (currentHash && currentHash !== hash) {
+          await preserveHistoryHeadRef(resolvedRepoRoot, "rollback");
+        }
 
-      runGit(resolvedRepoRoot, ["reset", "--hard", hash]);
+        await runGitAsync(resolvedRepoRoot, ["reset", "--hard", hash]);
 
-      return {
-        backend: this.name,
-        hash,
-        shortHash: readGit(resolvedRepoRoot, ["rev-parse", "--short", hash])
-      };
+        return {
+          backend: this.name,
+          hash,
+          shortHash: await readGitAsync(resolvedRepoRoot, ["rev-parse", "--short", hash])
+        };
+      });
     },
 
     async revertCommit(options = {}) {
-      await this.ensureRepository();
-      const hash = resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
-      preserveHistoryHeadRef(resolvedRepoRoot, "revert");
-      const result = runGit(
-        resolvedRepoRoot,
-        [
-          "-c",
-          `user.name=${String(options.authorName || "Space Agent")}`,
-          "-c",
-          `user.email=${String(options.authorEmail || "space-agent@local")}`,
-          "revert",
-          "--no-edit",
-          "--no-gpg-sign",
-          hash
-        ],
-        { check: false }
-      );
+      return runQueuedNativeLocalHistoryRepoTask(resolvedRepoRoot, async () => {
+        await ensureHistoryRepository();
+        const hash = await resolveHistoryCommit(resolvedRepoRoot, String(options.commitHash || ""));
+        await preserveHistoryHeadRef(resolvedRepoRoot, "revert");
+        const result = await runGitAsync(
+          resolvedRepoRoot,
+          [
+            "-c",
+            `user.name=${String(options.authorName || "Space Agent")}`,
+            "-c",
+            `user.email=${String(options.authorEmail || "space-agent@local")}`,
+            "revert",
+            "--no-edit",
+            "--no-gpg-sign",
+            hash
+          ],
+          { check: false }
+        );
 
-      if (result.status !== 0) {
-        runGit(resolvedRepoRoot, ["revert", "--abort"], { check: false });
-        throw createGitError(["revert", hash], result.stderr, result.stdout);
-      }
+        if (result.status !== 0) {
+          await runGitAsync(resolvedRepoRoot, ["revert", "--abort"], { check: false });
+          throw createGitError(["revert", hash], result.stderr, result.stdout);
+        }
 
-      const nextHash = readGit(resolvedRepoRoot, ["rev-parse", "HEAD"]);
+        const nextHash = await readGitAsync(resolvedRepoRoot, ["rev-parse", "HEAD"]);
 
-      return {
-        backend: this.name,
-        hash: nextHash,
-        revertedHash: hash,
-        shortHash: readGit(resolvedRepoRoot, ["rev-parse", "--short", nextHash])
-      };
+        return {
+          backend: this.name,
+          hash: nextHash,
+          revertedHash: hash,
+          shortHash: await readGitAsync(resolvedRepoRoot, ["rev-parse", "--short", nextHash])
+        };
+      });
     }
   };
 

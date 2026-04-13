@@ -185,9 +185,72 @@ function normalizeWidgetIdList(values) {
   );
 }
 
+function normalizeWidgetMetadataValue(value) {
+  if (value === null) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeWidgetMetadataValue(entry))
+      .filter((entry) => entry !== undefined);
+  }
+
+  const valueType = typeof value;
+
+  if (valueType === "string" || valueType === "boolean") {
+    return value;
+  }
+
+  if (valueType === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  if (valueType !== "object" || !value) {
+    return undefined;
+  }
+
+  const output = {};
+
+  Object.entries(value)
+    .sort(([leftKey], [rightKey]) => String(leftKey).localeCompare(String(rightKey)))
+    .forEach(([key, entryValue]) => {
+      const normalizedKey = String(key ?? "").trim();
+
+      if (!normalizedKey) {
+        return;
+      }
+
+      const normalizedValue = normalizeWidgetMetadataValue(entryValue);
+
+      if (normalizedValue !== undefined) {
+        output[normalizedKey] = normalizedValue;
+      }
+    });
+
+  return output;
+}
+
+function normalizeWidgetMetadata(value) {
+  const normalizedValue = normalizeWidgetMetadataValue(value);
+  return normalizedValue && typeof normalizedValue === "object" && !Array.isArray(normalizedValue)
+    ? normalizedValue
+    : {};
+}
+
+function hasOwnWidgetMetadataOption(options = {}) {
+  return Object.prototype.hasOwnProperty.call(options || {}, "metadata") || Object.prototype.hasOwnProperty.call(options || {}, "meta");
+}
+
+function resolveWidgetMetadataOption(options = {}, fallback = undefined) {
+  const metadataSource = hasOwnWidgetMetadataOption(options) ? options.metadata ?? options.meta : fallback;
+  return normalizeWidgetMetadata(metadataSource);
+}
+
 function cloneWidgetRecord(widgetRecord) {
   return {
     ...widgetRecord,
+    metadata: normalizeWidgetMetadata(widgetRecord?.metadata),
     defaultPosition: normalizeWidgetPosition(widgetRecord?.defaultPosition, DEFAULT_WIDGET_POSITION),
     defaultSize: normalizeWidgetSize(widgetRecord?.defaultSize, DEFAULT_WIDGET_SIZE)
   };
@@ -400,6 +463,7 @@ function normalizeWidgetRecord(rawWidget, fallback = {}) {
     defaultPosition: normalizeWidgetPosition(positionSource, DEFAULT_WIDGET_POSITION),
     defaultSize: normalizeWidgetSize(sizeSource, DEFAULT_WIDGET_SIZE),
     id: widgetId,
+    metadata: normalizeWidgetMetadata(rawWidget?.metadata ?? rawWidget?.meta ?? fallback.metadata),
     name: name || formatTitleFromId(widgetId) || "Untitled Widget",
     path: String(fallback.path || ""),
     rendererSource: normalizeRendererSource(rawWidget?.renderer ?? rawWidget?.render ?? fallback.rendererSource),
@@ -471,6 +535,10 @@ function buildWidgetMetadataLines(widgetRecord) {
     `cols: ${normalizedWidget.defaultSize.cols}`,
     `rows: ${normalizedWidget.defaultSize.rows}`
   ];
+
+  if (Object.keys(normalizedWidget.metadata).length) {
+    lines.push(`metadata: ${JSON.stringify(normalizedWidget.metadata)}`);
+  }
 
   if (normalizedWidget.defaultPosition.col !== DEFAULT_WIDGET_POSITION.col) {
     lines.push(`col: ${normalizedWidget.defaultPosition.col}`);
@@ -834,6 +902,7 @@ function applyPatchedWidgetAttributes(widgetRecord, options = {}) {
       col: nextPosition.col,
       cols: nextSize.cols,
       id: widgetRecord?.id,
+      metadata: resolveWidgetMetadataOption(options, widgetRecord?.metadata),
       name: options.name ?? options.title ?? widgetRecord?.name,
       renderer: widgetRecord?.rendererSource,
       row: nextPosition.row,
@@ -863,6 +932,7 @@ function buildWidgetWriteResults(spaceRecord, widgetIds = []) {
 
 function serializeWidgetRecord(widgetRecord) {
   const runtime = ensureSpaceRuntime();
+  const normalizedMetadata = normalizeWidgetMetadata(widgetRecord?.metadata);
   const yamlSource = {
     cols: widgetRecord.defaultSize.cols,
     id: widgetRecord.id,
@@ -871,6 +941,10 @@ function serializeWidgetRecord(widgetRecord) {
     rows: widgetRecord.defaultSize.rows,
     schema: SPACE_WIDGET_SCHEMA
   };
+
+  if (Object.keys(normalizedMetadata).length) {
+    yamlSource.metadata = normalizedMetadata;
+  }
 
   if (widgetRecord.defaultPosition.col !== DEFAULT_WIDGET_POSITION.col) {
     yamlSource.col = widgetRecord.defaultPosition.col;
@@ -1036,6 +1110,7 @@ function createWidgetRecordFromOptions(options = {}, fallback = {}) {
       defaultPosition: positionSource,
       defaultSize: sizeSource,
       id: options.widgetId || options.id || fallback.id,
+      metadata: resolveWidgetMetadataOption(options, fallback.metadata),
       name: options.name || options.title || fallback.name,
       renderer: rendererSource,
       row: options.row,
@@ -1432,21 +1507,29 @@ export function createWidgetSource(options = {}) {
 export function previewWidgetRecord(options = {}, fallback = {}) {
   const widgetFallbackId = normalizeWidgetId(options.widgetId || options.id || options.name || options.title || fallback.id || "widget");
 
-  return options.source !== undefined
-    ? parseWidgetSource(options.source, {
+  if (options.source !== undefined) {
+    const parsedWidget = parseWidgetSource(options.source, {
         ...fallback,
         id: fallback.id || widgetFallbackId,
         name: options.name || options.title || fallback.name || formatTitleFromId(widgetFallbackId),
         rendererSource: fallback.rendererSource || createDefaultRendererSource()
-      })
-    : createWidgetRecordFromOptions(options, {
-        ...fallback,
-        defaultPosition: fallback.defaultPosition || DEFAULT_WIDGET_POSITION,
-        defaultSize: fallback.defaultSize || DEFAULT_WIDGET_SIZE,
-        id: fallback.id || widgetFallbackId,
-        name: fallback.name || formatTitleFromId(widgetFallbackId),
-        rendererSource: fallback.rendererSource || createDefaultRendererSource()
       });
+
+    return applyPatchedWidgetAttributes(parsedWidget, {
+      ...options,
+      title: options.title ?? parsedWidget.name,
+      widgetId: options.widgetId ?? options.id ?? parsedWidget.id
+    });
+  }
+
+  return createWidgetRecordFromOptions(options, {
+    ...fallback,
+    defaultPosition: fallback.defaultPosition || DEFAULT_WIDGET_POSITION,
+    defaultSize: fallback.defaultSize || DEFAULT_WIDGET_SIZE,
+    id: fallback.id || widgetFallbackId,
+    name: fallback.name || formatTitleFromId(widgetFallbackId),
+    rendererSource: fallback.rendererSource || createDefaultRendererSource()
+  });
 }
 
 export async function listSpaces() {

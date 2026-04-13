@@ -36,6 +36,7 @@ Current rules:
 - `SPACE_GIT_BACKEND` may force a specific backend name
 - update and install backend clients must satisfy the shared interface asserted by `client_interface.js`
 - local-history clients expose `ensureRepository`, `commitAll`, `listCommits`, `getCommitDiff`, `previewOperation`, `rollbackToCommit`, and `revertCommit`
+- native local-history clients must run Git subprocesses asynchronously and serialize operations per `repoRoot` through one shared queue so debounced owner-root history work does not block the server event loop or race the same repository from multiple callers
 - local-history `commitAll`, `listCommits`, `getCommitDiff`, and `previewOperation` accept ignored repository-relative paths so backend implementations can untrack and hide runtime-sensitive files consistently
 - local-history `listCommits` accepts `limit`, `offset`, and optional `fileFilter`, treats plain filters as open-ended contains matches across changed paths and nested filenames, returns commit metadata plus full per-file action entries for listed commits, and should avoid loading full patch bodies for list pages
 - `previewOperation` accepts travel or revert operations and returns affected-file metadata plus an operation-specific patch when a `filePath` is provided
@@ -49,4 +50,5 @@ Current rules:
 - do not import a backend implementation directly from unrelated server or command code when `client_create.js` already owns selection
 - use `local_history.js` rather than shelling out directly when writable app-layer history needs Git operations
 - keep remote sanitization and backend-resolution logic centralized in `shared.js`
+- preserve the shared per-repo serialization rule for local-history backends whenever native-history process handling changes
 - if backend order, interface shape, or environment-variable behavior changes, update this file and the relevant server or command docs in the same session

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { listAppPaths, listAppPathsByPatterns, writeAppFile } from "../server/lib/customware/file_access.js";
+import { createLocalGitHistoryClient } from "../server/lib/git/local_history.js";
 import {
   flushGitHistoryCommits,
   getLayerHistoryCommitDiff,
@@ -90,6 +91,54 @@ function createGroupWatchdog(paths = []) {
       return [...paths];
     }
   };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function readGitExecutablePath() {
+  const result = spawnSync("bash", ["-lc", "command -v git"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  if (result.error || result.status !== 0) {
+    throw result.error || new Error(String(result.stderr || result.stdout || "git not found").trim());
+  }
+
+  return result.stdout.trim();
+}
+
+function writeGitWrapperScript(wrapperPath) {
+  fs.writeFileSync(
+    wrapperPath,
+    `#!/usr/bin/env bash
+set -euo pipefail
+is_commit=0
+for arg in "$@"; do
+  if [[ "$arg" == "commit" ]]; then
+    is_commit=1
+    break
+  fi
+done
+
+if [[ "$is_commit" == "1" ]]; then
+  printf 'start %s\\n' "$PWD" >> "$SPACE_TEST_GIT_LOG"
+  sleep 0.3
+  "$SPACE_TEST_REAL_GIT" "$@"
+  status=$?
+  printf 'end %s\\n' "$PWD" >> "$SPACE_TEST_GIT_LOG"
+  exit "$status"
+fi
+
+exec "$SPACE_TEST_REAL_GIT" "$@"
+`,
+    "utf8"
+  );
+  fs.chmodSync(wrapperPath, 0o755);
 }
 
 function runGit(repoRoot, args, options = {}) {
@@ -531,6 +580,97 @@ try {
 
   assert.equal(runGit(legacyRoot, ["ls-files", "meta/password.json"]), "");
   assert.equal(runGit(legacyRoot, ["ls-files", "meta/logins.json"]), "");
+
+  const queuedRepoRoot = path.join(projectRoot, "app", "L2", "queued");
+  const gitWrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), "space-native-git-wrapper-"));
+  const gitWrapperPath = path.join(gitWrapperDir, "git");
+  const gitLogPath = path.join(gitWrapperDir, "commits.log");
+  const realGitPath = readGitExecutablePath();
+  const originalPath = process.env.PATH || "";
+  const originalBackend = process.env.SPACE_GIT_BACKEND;
+  const originalRealGitPath = process.env.SPACE_TEST_REAL_GIT;
+  const originalGitLogPath = process.env.SPACE_TEST_GIT_LOG;
+
+  writeGitWrapperScript(gitWrapperPath);
+  process.env.PATH = `${gitWrapperDir}${path.delimiter}${originalPath}`;
+  process.env.SPACE_GIT_BACKEND = "native";
+  process.env.SPACE_TEST_REAL_GIT = realGitPath;
+  process.env.SPACE_TEST_GIT_LOG = gitLogPath;
+
+  try {
+    fs.mkdirSync(queuedRepoRoot, { recursive: true });
+
+    const queuedClientA = await createLocalGitHistoryClient({
+      repoRoot: queuedRepoRoot
+    });
+    const queuedClientB = await createLocalGitHistoryClient({
+      repoRoot: queuedRepoRoot
+    });
+
+    fs.writeFileSync(path.join(queuedRepoRoot, "notes.txt"), "first\n");
+    const firstQueuedCommitPromise = queuedClientA.commitAll({
+      authorEmail: "queue@example.local",
+      authorName: "Queue Test",
+      message: "queue first"
+    });
+
+    await sleep(50);
+
+    fs.writeFileSync(path.join(queuedRepoRoot, "notes.txt"), "second\n");
+    const secondQueuedCommitPromise = queuedClientB.commitAll({
+      authorEmail: "queue@example.local",
+      authorName: "Queue Test",
+      message: "queue second"
+    });
+
+    const [firstQueuedCommit, secondQueuedCommit] = await Promise.all([
+      firstQueuedCommitPromise,
+      secondQueuedCommitPromise
+    ]);
+
+    assert.equal(firstQueuedCommit.committed, true);
+    assert.equal(secondQueuedCommit.committed, true);
+    assert.notEqual(firstQueuedCommit.hash, secondQueuedCommit.hash);
+    assert.equal(fs.readFileSync(path.join(queuedRepoRoot, "notes.txt"), "utf8"), "second\n");
+    assert.deepEqual(
+      runGit(queuedRepoRoot, ["log", "--format=%s"]).split(/\r?\n/u).filter(Boolean).slice(0, 2),
+      ["queue second", "queue first"]
+    );
+    assert.deepEqual(
+      fs.readFileSync(gitLogPath, "utf8").split(/\r?\n/u).filter(Boolean),
+      [
+        `start ${queuedRepoRoot}`,
+        `end ${queuedRepoRoot}`,
+        `start ${queuedRepoRoot}`,
+        `end ${queuedRepoRoot}`
+      ]
+    );
+  } finally {
+    process.env.PATH = originalPath;
+
+    if (originalBackend === undefined) {
+      delete process.env.SPACE_GIT_BACKEND;
+    } else {
+      process.env.SPACE_GIT_BACKEND = originalBackend;
+    }
+
+    if (originalRealGitPath === undefined) {
+      delete process.env.SPACE_TEST_REAL_GIT;
+    } else {
+      process.env.SPACE_TEST_REAL_GIT = originalRealGitPath;
+    }
+
+    if (originalGitLogPath === undefined) {
+      delete process.env.SPACE_TEST_GIT_LOG;
+    } else {
+      process.env.SPACE_TEST_GIT_LOG = originalGitLogPath;
+    }
+
+    fs.rmSync(gitWrapperDir, {
+      force: true,
+      recursive: true
+    });
+  }
 } finally {
   fs.rmSync(projectRoot, {
     force: true,

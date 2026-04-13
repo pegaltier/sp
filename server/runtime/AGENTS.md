@@ -37,6 +37,7 @@ Unified state-system rules:
 - worker-visible state is stored as `state[area][id]`
 - one `(area,id)` value is one replication unit; updates replace the whole shard value
 - replicated state shares one global monotonic version for request fencing and worker catch-up
+- primary-owned watchdog state seeds that monotonic version space from a long startup epoch and then increments by `1` per replicated commit, so fresh runtimes do not fall behind a browser's previously observed version while delta replay still keeps exact `fromVersion -> toVersion` chaining
 - the primary retains only the most recent delta window, currently `1000` versions, and workers that fall behind that window must request a full snapshot
 - entries may opt out of replication with `replicate: false`; those entries stay primary-only and may carry a TTL
 - named locks are explicit and token-based through `acquireLock` and `releaseLock`
@@ -49,6 +50,7 @@ Mutation and visibility rules:
 - workers perform the filesystem mutation first, then commit the affected logical project paths to the primary once
 - the primary updates the authoritative watchdog-derived state, schedules any debounced writable-layer Git history commits for those rebuilt owner roots, and publishes deltas or snapshots asynchronously; writes do not wait for every worker to acknowledge
 - request-to-request freshness is enforced through `Space-State-Version`: responses advertise the worker's current replicated version, and requests may require a minimum version before handling continues
+- when a worker receives a higher requested version than its replica currently has, it should pull from primary immediately before falling back to the bounded local wait window, so startup and cross-worker races recover without making the client sit through a full timeout first
 - responses also advertise `Space-Worker`; clustered workers use stable ordinal numbers starting at `1`, while single-process runtime reports `0`
 
 ## Development Guidance

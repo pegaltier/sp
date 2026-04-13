@@ -9,7 +9,7 @@
       x-data
       x-init="$nextTick(() => { $store.timeTravel.mount({ actionDialog: $refs.actionDialog, diffDialog: $refs.diffDialog, repositoryDialog: $refs.repositoryDialog }); $store.timeTravel.init(); })"
     >
-      <template x-teleport='[id="_core/onscreen_menu/bar_start"]'>
+      <template x-inject='[id="_core/onscreen_menu/bar_start"]'>
         <div x-cloak data-order="300" class="time-travel-topbar-controls">
           <button
             type="button"

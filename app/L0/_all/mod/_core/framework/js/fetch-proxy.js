@@ -6,10 +6,38 @@ import {
 import { getConfiguredModuleMaxLayer } from "./moduleResolution.js";
 
 const FETCH_PROXY_MARKER = Symbol.for("space.fetch-proxy-installed");
+const RETRYABLE_STATE_SYNC_ERROR = "Server state is still synchronizing. Retry the request.";
+const STATE_SYNC_RETRY_DELAY_MS = 100;
+const STATE_SYNC_RETRY_MAX_ATTEMPTS = 3;
 const proxyFallbackOrigins = new Set();
 
 function requestCanHaveBody(method) {
   return !["GET", "HEAD"].includes(String(method || "GET").toUpperCase());
+}
+
+function waitForRetryDelay(delayMs, signal) {
+  if (!Number.isFinite(delayMs) || delayMs <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener?.("abort", handleAbort);
+      resolve();
+    }, delayMs);
+
+    function handleAbort() {
+      clearTimeout(timeoutId);
+      reject(signal.reason || new DOMException("The operation was aborted.", "AbortError"));
+    }
+
+    if (signal?.aborted) {
+      handleAbort();
+      return;
+    }
+
+    signal?.addEventListener?.("abort", handleAbort, { once: true });
+  });
 }
 
 function getProxyFallbackOriginKey(targetUrl) {
@@ -75,6 +103,42 @@ function isModuleRequest(targetUrl) {
   return new URL(targetUrl, window.location.href).pathname.startsWith("/mod/");
 }
 
+async function isRetryableStateSyncResponse(request, response) {
+  if (!isSameOriginRequest(request.url) || response.status !== 503) {
+    return false;
+  }
+
+  if (String(response.headers.get("Retry-After") || "").trim() !== "0") {
+    return false;
+  }
+
+  const detail = await response.clone().text().catch(() => "");
+  return detail.includes(RETRYABLE_STATE_SYNC_ERROR);
+}
+
+async function fetchSameOriginWithStateSyncRetry(originalFetch, request) {
+  const retrySource = request.clone();
+  let response = null;
+
+  for (let attempt = 0; attempt < STATE_SYNC_RETRY_MAX_ATTEMPTS; attempt += 1) {
+    const attemptRequest = attempt === 0 ? request : retrySource.clone();
+    response = await originalFetch(attemptRequest);
+    observeStateVersionFromResponse(response);
+
+    if (!(await isRetryableStateSyncResponse(attemptRequest, response))) {
+      return response;
+    }
+
+    if (attempt >= STATE_SYNC_RETRY_MAX_ATTEMPTS - 1) {
+      return response;
+    }
+
+    await waitForRetryDelay(STATE_SYNC_RETRY_DELAY_MS * (attempt + 1), attemptRequest.signal);
+  }
+
+  return response;
+}
+
 function withStateVersionHeader(request) {
   if (!isSameOriginRequest(request.url)) {
     return request;
@@ -110,9 +174,7 @@ export function installFetchProxy(options = {}) {
     const request = withStateVersionHeader(new Request(input, init));
 
     if (!isProxyableExternalUrl(request.url)) {
-      const response = await originalFetch(request);
-      observeStateVersionFromResponse(response);
-      return response;
+      return fetchSameOriginWithStateSyncRetry(originalFetch, request);
     }
 
     if (requestSupportsProxyFallback(request) && hasProxyFallbackOrigin(request.url)) {

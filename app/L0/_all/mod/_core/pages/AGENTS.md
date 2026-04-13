@@ -30,7 +30,7 @@ Current dashboard integration:
 
 - `_core/dashboard/` provides the `_core/dashboard/content_end` seam for the panels section
 - the panels launcher should stay below the spaces launcher and should not pull spaces-owned state into this module
-- the dashboard treatment is intentionally secondary navigation, not primary content: render a small uppercase `PANELS` eyebrow above one horizontal row of compact icon-plus-label pill chips
+- the dashboard treatment is intentionally secondary navigation, not primary content: render a `Panels` section heading that reuses the shared centered uppercase dashboard divider styling from `_core/dashboard/dashboard.css`, adds slightly more top breathing room than the spaces heading, and sits above one horizontal row of compact icon-plus-label pill chips
 - panel chips should keep a thin outlined border, transparent resting background, and visibly lower weight than the spaces cards above them; descriptions may still feed accessibility or hover affordances, but they should not render as second lines in the dashboard row
 - panel chips should open routes through `space.router.goTo(...)` when the router runtime is available and fall back to updating `location.hash`
 - the dashboard section should stay read-only; page manifests describe existing routed pages and do not create or mutate app files

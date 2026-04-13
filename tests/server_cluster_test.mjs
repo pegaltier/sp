@@ -421,6 +421,7 @@ test("clustered server keeps writes and auth visible across workers", async (tes
 
     assert.equal(healthResponse.status, 200);
     assert.ok(Number.isFinite(healthVersion) && healthVersion > 0);
+    assert.ok(healthVersion >= 1_000_000_000_000);
     assert.ok(healthWorker >= 1 && healthWorker <= 2);
 
     const blockedResponse = await fetch(new URL("/api/health", runtime.browserUrl), {

@@ -384,6 +384,10 @@ async function startClusterWorker() {
       }
 
       const timeoutMs = Math.max(0, Math.floor(Number(options.timeoutMs) || 0));
+      if ((watchdog?.getVersion?.() || 0) < Number(minVersion || 0)) {
+        await syncWatchdogFromPrimary();
+      }
+
       let waitResult = await watchdog.waitForVersion(minVersion, {
         timeoutMs
       });
