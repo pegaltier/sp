@@ -6,6 +6,7 @@ This doc covers the Electron desktop host and the packaging scripts that build n
 
 - `packaging/AGENTS.md`
 - `packaging/desktop/main.js`
+- `packaging/desktop/server_storage_paths.js`
 - `packaging/desktop/preload.js`
 - `packaging/desktop/frame-preload.js`
 - `packaging/scripts/desktop-builder.js`
@@ -31,6 +32,8 @@ Current startup contract:
 - it passes `PORT=0`, so the OS assigns a free local port for that launch
 - packaged apps also force `WORKERS=1`, so the standalone desktop host stays on the single-process server runtime
 - packaged apps also set `CUSTOMWARE_PATH` to `<userData>/customware`, so writable `L1/` and `L2/` content stays in the native OS user-data location instead of inside the installed app bundle
+- packaged apps also pass `tmpDir=<temp>/space-agent/server-tmp`, so transient server artifacts live in a writable OS temp root instead of a read-only AppImage or installed bundle path
+- packaged apps also export `SPACE_AUTH_DATA_DIR=<userData>/server/data`, so backend-only auth keys and local `userCrypto` server-share caches avoid read-only bundle paths too
 - after `listen()`, the server runtime updates its public `port` and `browserUrl` fields to the resolved bound port
 - the host loads `${browserUrl}${launchPath}` instead of reconstructing a fixed URL from config
 
@@ -41,6 +44,8 @@ Current Electron behavior differs only where the native-host contract requires i
 - packaged apps force `SINGLE_USER_APP=true`
 - packaged apps force `WORKERS=1`
 - packaged apps persist writable customware under the native user-data root through `CUSTOMWARE_PATH`
+- packaged apps store transient server temp artifacts under the native OS temp root through `tmpDir`
+- packaged apps store backend-only auth fallback data under the native user-data root through `SPACE_AUTH_DATA_DIR`
 - packaged apps open `/enter` as the recovery-safe launcher shell
 - packaged apps also register an Electron frame preload that can activate iframe `data-space-inject` module scripts inside bundled-app subframes
 - source-checkout desktop dev runs keep the normal runtime auth flow
@@ -68,6 +73,7 @@ Current build behavior:
 - keeps the canonical source icon artwork under `packaging/resources/icons/source/` and derives platform-specific packaging icons from it
 - points macOS packaging at that source PNG so `electron-builder` can compile the final app icon internally, while Windows and Linux use checked-in derived assets under `packaging/platforms/`
 - keeps Windows NSIS packaging configured to recreate desktop shortcuts on reinstall, so updater-driven installs repair stale desktop links instead of preserving broken ones
+- keeps Linux maintainer metadata in `build.linux.maintainer`, so Linux package formats that require maintainer identity do not depend on the repo-wide package author field
 - enables hardened-runtime signing inputs for macOS and keeps notarization credential discovery in the standard `electron-builder` environment-variable flow
 - allows local macOS packaging without signing credentials by honoring `SKIP_SIGNING=1` in the desktop builder wrapper, and also accepts the launcher-style `APPLE_PASSWORD` env var as a local alias for `APPLE_APP_SPECIFIC_PASSWORD`
 - publishes platform-specific GitHub updater metadata so packaged apps can resolve new installers and bundles from the GitHub Release they were built for, using the canonical release asset names `metadata-latest-windows.yml`, `metadata-latest-mac.yml`, `metadata-latest-linux.yml`, and `metadata-latest-linux-arm64.yml`; those metadata files are rewritten during staging to point only at canonical NSIS installers, AppImages, and macOS updater zips
