@@ -5,10 +5,16 @@
     REQUEST: "request",
     RESPONSE: "response"
   });
+  const BRIDGE_BOOTSTRAP_KEY = "__spaceBrowserInjectBootstrap__";
+  const BRIDGE_DESKTOP_TRANSPORT_KEY = "__spaceBrowserEmbedTransport__";
   const BRIDGE_GLOBAL_KEY = "__spaceBrowserFrameInjectBridge__";
   const BRIDGE_META_KEY = "__spaceBrowserFrameInjectMeta__";
   const BRIDGE_DOM_FLAG = "__spaceBrowserFrameInjectDomReady__";
+  const BRIDGE_NAVIGATION_FLAG = "__spaceBrowserFrameInjectNavigationReady__";
+  const BRIDGE_NAVIGATION_EVENTS_FLAG = "__spaceBrowserFrameInjectNavigationEventsReady__";
+  const BRIDGE_OPEN_WINDOW_FLAG = "__spaceBrowserFrameInjectOpenWindowReady__";
   const BRIDGE_PING_FLAG = "__spaceBrowserFrameInjectPingReady__";
+  const HISTORY_PATCH_FLAG = "__spaceBrowserFrameInjectHistoryPatchReady__";
 
   function isPlainObject(value) {
     if (!value || Object.prototype.toString.call(value) !== "[object Object]") {
@@ -263,6 +269,74 @@
     return null;
   }
 
+  function resolveDesktopTransport() {
+    const transport = globalThis[BRIDGE_DESKTOP_TRANSPORT_KEY];
+    if (
+      !transport
+      || typeof transport.bindReceiver !== "function"
+      || typeof transport.sendEnvelope !== "function"
+    ) {
+      return null;
+    }
+
+    return {
+      postEnvelope(envelope) {
+        transport.sendEnvelope(envelope);
+        return envelope;
+      },
+
+      subscribe(listener) {
+        return transport.bindReceiver((envelope) => {
+          listener(envelope, {
+            origin: "electron://desktop",
+            source: "desktop"
+          });
+        });
+      }
+    };
+  }
+
+  function resolveWindowTransport(options = {}) {
+    const targetOrigin = typeof options.targetOrigin === "string" && options.targetOrigin.trim()
+      ? options.targetOrigin.trim()
+      : "*";
+
+    return {
+      postEnvelope(envelope) {
+        const targetWindow = resolveTargetWindow(options.targetWindow);
+        if (!targetWindow) {
+          throw new Error("Browser frame bridge target window is unavailable.");
+        }
+
+        targetWindow.postMessage(envelope, targetOrigin);
+        return envelope;
+      },
+
+      subscribe(listener) {
+        const handleMessage = (event) => {
+          const expectedSource = resolveTargetWindow(options.targetWindow);
+          if (expectedSource && event.source !== expectedSource) {
+            return;
+          }
+
+          listener(event?.data, {
+            origin: String(event?.origin || ""),
+            source: event?.source || null
+          });
+        };
+
+        globalThis.addEventListener("message", handleMessage);
+        return () => {
+          globalThis.removeEventListener("message", handleMessage);
+        };
+      }
+    };
+  }
+
+  function resolveBridgeTransport(options = {}) {
+    return resolveDesktopTransport() || resolveWindowTransport(options);
+  }
+
   function coerceSelectorList(payload) {
     if (Array.isArray(payload?.selectors)) {
       return payload.selectors;
@@ -329,23 +403,277 @@
     return snapshot;
   }
 
+  function readNavigationCapability(key) {
+    return typeof globalThis.navigation?.[key] === "boolean"
+      ? globalThis.navigation[key]
+      : null;
+  }
+
+  function collectNavigationState() {
+    const canGoBack = readNavigationCapability("canGoBack");
+    const canGoForward = readNavigationCapability("canGoForward");
+
+    return {
+      canGoBack: canGoBack == null ? Number(globalThis.history?.length || 0) > 1 : canGoBack,
+      canGoForward: canGoForward == null ? false : canGoForward,
+      title: String(globalThis.document?.title || ""),
+      url: String(globalThis.location?.href || "")
+    };
+  }
+
+  function scheduleHistoryAction(direction) {
+    const navigation = globalThis.navigation;
+    const fallback = () => {
+      globalThis.history?.[direction]?.();
+    };
+
+    setTimeout(() => {
+      if (direction === "back" && typeof navigation?.back === "function") {
+        try {
+          Promise.resolve(navigation.back()).catch(() => {
+            fallback();
+          });
+        } catch {
+          fallback();
+        }
+        return;
+      }
+
+      if (direction === "forward" && typeof navigation?.forward === "function") {
+        try {
+          Promise.resolve(navigation.forward()).catch(() => {
+            fallback();
+          });
+        } catch {
+          fallback();
+        }
+        return;
+      }
+
+      fallback();
+    }, 0);
+
+    return {
+      scheduled: direction,
+      state: collectNavigationState()
+    };
+  }
+
+  function scheduleReload() {
+    setTimeout(() => {
+      if (typeof globalThis.location?.reload === "function") {
+        globalThis.location.reload();
+        return;
+      }
+
+      if (typeof globalThis.location?.href === "string" && globalThis.location.href) {
+        globalThis.location.href = globalThis.location.href;
+      }
+    }, 0);
+
+    return {
+      scheduled: "reload",
+      state: collectNavigationState()
+    };
+  }
+
+  function normalizeNavigationTarget(payload) {
+    const rawTarget = typeof payload === "string"
+      ? payload
+      : payload && typeof payload === "object"
+        ? payload.url
+        : "";
+    const normalizedTarget = String(rawTarget || "").trim();
+
+    if (!normalizedTarget) {
+      throw createNamedError(
+        "BrowserFrameBridgeNavigationError",
+        "Browser frame bridge requires a non-empty navigation target."
+      );
+    }
+
+    try {
+      return new URL(normalizedTarget, globalThis.location?.href || "http://localhost/").href;
+    } catch {
+      throw createNamedError(
+        "BrowserFrameBridgeNavigationError",
+        `Browser frame bridge rejected invalid navigation target "${normalizedTarget}".`,
+        {
+          details: {
+            url: normalizedTarget
+          }
+        }
+      );
+    }
+  }
+
+  function scheduleNavigate(payload) {
+    const nextUrl = normalizeNavigationTarget(payload);
+
+    setTimeout(() => {
+      try {
+        globalThis.location?.assign?.(nextUrl);
+      } catch {
+        try {
+          globalThis.location.href = nextUrl;
+        } catch {
+          // Ignore navigation failures during unload or blocked page teardown.
+        }
+      }
+    }, 0);
+
+    return {
+      scheduled: "navigate",
+      state: {
+        ...collectNavigationState(),
+        url: nextUrl
+      }
+    };
+  }
+
+  function normalizeWindowTarget(target) {
+    const normalizedTarget = String(target || "").trim();
+    if (!normalizedTarget) {
+      return "_blank";
+    }
+
+    return normalizedTarget;
+  }
+
+  function emitRequestedWindowOpen(bridge, payload = {}) {
+    const rawUrl = String(payload.url || "").trim();
+    if (!rawUrl) {
+      return null;
+    }
+
+    let normalizedUrl = "";
+    try {
+      normalizedUrl = new URL(rawUrl, globalThis.location?.href || "http://localhost/").href;
+    } catch {
+      return null;
+    }
+
+    const message = {
+      disposition: String(payload.disposition || "new-window").trim() || "new-window",
+      frameName: normalizeWindowTarget(payload.frameName),
+      referrerUrl: String(payload.referrerUrl || globalThis.location?.href || "").trim(),
+      url: normalizedUrl
+    };
+
+    try {
+      bridge.send("open_window", message);
+      return message;
+    } catch {
+      return null;
+    }
+  }
+
+  function installOpenWindowHooks(bridge) {
+    if (!bridge || bridge[BRIDGE_OPEN_WINDOW_FLAG]) {
+      return bridge;
+    }
+
+    const originalOpen = typeof globalThis.open === "function"
+      ? globalThis.open.bind(globalThis)
+      : null;
+
+    globalThis.open = function patchedOpen(url = "", target = "_blank", features = "") {
+      const normalizedTarget = normalizeWindowTarget(target);
+      if (normalizedTarget === "_self" || normalizedTarget === "_top" || normalizedTarget === "_parent") {
+        if (originalOpen) {
+          return originalOpen(url, normalizedTarget, features);
+        }
+
+        const nextUrl = String(url || "").trim();
+        if (nextUrl) {
+          globalThis.location.href = nextUrl;
+        }
+        return null;
+      }
+
+      emitRequestedWindowOpen(bridge, {
+        disposition: "window-open",
+        frameName: normalizedTarget,
+        url
+      });
+      return null;
+    };
+
+    globalThis.document?.addEventListener?.("click", (event) => {
+      if (event.defaultPrevented || event.button !== 0) {
+        return;
+      }
+
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+
+      const anchor = event.target instanceof Element
+        ? event.target.closest("a[href][target]")
+        : null;
+      if (!(anchor instanceof HTMLAnchorElement)) {
+        return;
+      }
+
+      const normalizedTarget = normalizeWindowTarget(anchor.getAttribute("target"));
+      if (normalizedTarget === "_self" || normalizedTarget === "_top" || normalizedTarget === "_parent") {
+        return;
+      }
+
+      const requestedWindow = emitRequestedWindowOpen(bridge, {
+        disposition: "target-blank",
+        frameName: normalizedTarget,
+        referrerUrl: globalThis.location?.href || "",
+        url: anchor.href || anchor.getAttribute("href") || ""
+      });
+
+      if (!requestedWindow) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+
+    bridge[BRIDGE_OPEN_WINDOW_FLAG] = true;
+    return bridge;
+  }
+
+  function installHistoryChangeHooks(notify) {
+    if (globalThis[HISTORY_PATCH_FLAG]) {
+      return;
+    }
+
+    const history = globalThis.history;
+    ["pushState", "replaceState"].forEach((methodName) => {
+      const original = history?.[methodName];
+      if (typeof original !== "function") {
+        return;
+      }
+
+      history[methodName] = function patchedHistoryState(...args) {
+        const result = original.apply(this, args);
+        notify();
+        return result;
+      };
+    });
+
+    globalThis[HISTORY_PATCH_FLAG] = true;
+  }
+
   function createBridge(options = {}) {
     const eventListeners = new Map();
     const requestHandlers = new Map();
     const pendingRequests = new Map();
-    const targetOrigin = typeof options.targetOrigin === "string" && options.targetOrigin.trim()
-      ? options.targetOrigin.trim()
-      : "*";
     const defaultTimeoutMs = Math.max(0, Number(options.requestTimeoutMs) || 0);
+    const transport = resolveBridgeTransport(options);
 
     function postEnvelope(envelope) {
-      const targetWindow = resolveTargetWindow(options.targetWindow);
-      if (!targetWindow) {
-        throw new Error("Browser frame bridge target window is unavailable.");
+      if (!transport) {
+        throw new Error("Browser frame bridge transport is unavailable.");
       }
 
-      targetWindow.postMessage(envelope, targetOrigin);
-      return envelope;
+      return transport.postEnvelope(envelope);
     }
 
     async function respondToRequest(message) {
@@ -381,14 +709,8 @@
       }
     }
 
-    function handleMessage(event) {
-      const rawMessage = event?.data;
+    function handleEnvelope(rawMessage, meta = {}) {
       if (!rawMessage || rawMessage.channel !== BRIDGE_CHANNEL || typeof rawMessage.type !== "string") {
-        return;
-      }
-
-      const expectedSource = resolveTargetWindow(options.targetWindow);
-      if (expectedSource && event.source !== expectedSource) {
         return;
       }
 
@@ -399,12 +721,12 @@
 
       const message = {
         ok: rawMessage.ok !== false,
-        origin: String(event.origin || ""),
+        origin: String(meta.origin || ""),
         payload: rawMessage.payload,
         phase,
         raw: rawMessage,
         requestId: typeof rawMessage.requestId === "string" ? rawMessage.requestId : "",
-        source: event.source || null,
+        source: meta.source || null,
         type: normalizeType(rawMessage.type)
       };
 
@@ -441,13 +763,15 @@
       pendingRequest.resolve(message);
     }
 
-    globalThis.addEventListener("message", handleMessage);
+    const offTransport = typeof transport?.subscribe === "function"
+      ? transport.subscribe(handleEnvelope)
+      : () => {};
 
     return {
       channel: BRIDGE_CHANNEL,
 
       destroy() {
-        globalThis.removeEventListener("message", handleMessage);
+        offTransport?.();
         pendingRequests.forEach((pendingRequest) => {
           if (pendingRequest.timeoutId != null) {
             clearTimeout(pendingRequest.timeoutId);
@@ -560,14 +884,80 @@
     return bridge;
   }
 
+  function installNavigationHandler(bridge) {
+    if (!bridge || bridge[BRIDGE_NAVIGATION_FLAG]) {
+      return bridge;
+    }
+
+    bridge.handle("navigation_state_get", () => collectNavigationState());
+    bridge.handle("location_navigate", (payload) => scheduleNavigate(payload));
+    bridge.handle("history_back", () => scheduleHistoryAction("back"));
+    bridge.handle("history_forward", () => scheduleHistoryAction("forward"));
+    bridge.handle("location_reload", () => scheduleReload());
+    bridge[BRIDGE_NAVIGATION_FLAG] = true;
+    return bridge;
+  }
+
+  function installNavigationEvents(bridge) {
+    if (!bridge || bridge[BRIDGE_NAVIGATION_EVENTS_FLAG]) {
+      return bridge;
+    }
+
+    let notifyQueued = false;
+
+    const notify = () => {
+      if (notifyQueued) {
+        return;
+      }
+
+      notifyQueued = true;
+      setTimeout(() => {
+        notifyQueued = false;
+
+        try {
+          bridge.send("navigation_state", collectNavigationState());
+        } catch {
+          // Ignore bridge send failures during frame teardown or cross-origin transitions.
+        }
+      }, 0);
+    };
+
+    installHistoryChangeHooks(notify);
+
+    [
+      "DOMContentLoaded",
+      "hashchange",
+      "load",
+      "pageshow",
+      "popstate"
+    ].forEach((eventName) => {
+      globalThis.addEventListener(eventName, notify);
+    });
+
+    notify();
+    bridge[BRIDGE_NAVIGATION_EVENTS_FLAG] = true;
+    return bridge;
+  }
+
   const existingBridge = globalThis[BRIDGE_GLOBAL_KEY];
-  const bridge = installDomHandler(installPingHandler(existingBridge || createBridge()));
-  const bootstrap = isPlainObject(globalThis.__spaceBrowserFrameInjectBootstrap__)
-    ? globalThis.__spaceBrowserFrameInjectBootstrap__
+  const bridge = installNavigationEvents(
+    installNavigationHandler(
+      installDomHandler(
+        installPingHandler(
+          installOpenWindowHooks(existingBridge || createBridge())
+        )
+      )
+    )
+  );
+  const bootstrap = isPlainObject(globalThis[BRIDGE_BOOTSTRAP_KEY])
+    ? globalThis[BRIDGE_BOOTSTRAP_KEY]
+    : isPlainObject(globalThis.__spaceBrowserFrameInjectBootstrap__)
+      ? globalThis.__spaceBrowserFrameInjectBootstrap__
     : {};
 
   globalThis[BRIDGE_GLOBAL_KEY] = bridge;
   globalThis[BRIDGE_META_KEY] = {
+    browserId: typeof bootstrap.browserId === "string" ? bootstrap.browserId : "",
     iframeId: typeof bootstrap.iframeId === "string" ? bootstrap.iframeId : "",
     loadedAt: Date.now(),
     scriptPath: typeof bootstrap.scriptPath === "string" ? bootstrap.scriptPath : "",

@@ -69,7 +69,8 @@ Important rules:
 - `/api/login_challenge` reports whether the account is `ready`, `missing`, or `invalidated`; legacy accounts with no record receive a one-time provisioning share so the browser can create the missing record during the same login
 - accounts that still have a wrapped record but no recoverable server share are treated as `invalidated`, not `missing`, so login does not silently replace a key that may still protect existing ciphertext
 - `/api/login` persists the missing record before issuing the cookie, then returns the wrapped record plus the server share so the browser can unlock the master key for that authenticated browser session
-- the unlocked browser key is session-scoped; frontend code keeps it in `sessionStorage`, keyed by username plus backend `sessionId`
+- the unlocked browser key is session-scoped; frontend code keeps it in `sessionStorage`, keyed by username plus backend `sessionId`, and may also keep one encrypted localStorage blob under `space.userCrypto.local`
+- `/api/user_crypto_session_key` returns the current session-derived wrapping key by HMACing the live backend `sessionId` with the backend session secret, so the browser can encrypt or decrypt that one localStorage blob without storing the wrapping key at rest
 - admin or CLI password resets cannot rewrap the browser-owned key, so they invalidate `user_crypto.json` and delete the backend-only server share instead
 
 ## Password Contract
@@ -80,7 +81,7 @@ Important rules:
 
 - do not hand-author these files
 - only backend helpers that hold the seal key can create accepted payloads
-- authenticated self-service password changes go through `/api/password_change`, which validates the current password against the opened sealed verifier, rewrites `meta/password.json`, rewraps `meta/user_crypto.json` when the current session has unlocked browser crypto, clears `meta/logins.json`, and clears the current browser cookie
+- authenticated self-service password changes go through `/api/password_change`, which validates the current password against the opened sealed verifier, rewrites `meta/password.json`, rewraps `meta/user_crypto.json` when the current session has unlocked browser crypto, clears `meta/logins.json`, and clears the current browser auth cookie
 - legacy plaintext verifier files are migrated to sealed form during startup; in clustered runtime that initialization stays on the primary before workers begin serving
 - the auth service uses the shared state system for challenge coordination; there is no second in-memory login-challenge path in the runtime
 

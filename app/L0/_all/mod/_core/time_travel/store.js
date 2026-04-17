@@ -1,7 +1,11 @@
 const PAGE_SIZE = 100;
+const MAX_DIFF_DISPLAY_BYTES = 1000 * 1000;
+const NO_TEXT_DIFF_MESSAGE = "No text diff is available for this file.";
+const DIFF_TOO_LARGE_MESSAGE = "This diff is larger than 1 MB, so Time Travel will not render it.";
 const PREVIEW_FILE_LIMIT = 10;
 const PREVIEW_FILE_ROWS = 3;
 const GIT_REPOSITORY_PATTERN = "**/.git/";
+const TEXT_ENCODER = typeof TextEncoder === "function" ? new TextEncoder() : null;
 
 function getRuntime() {
   const runtime = globalThis.space;
@@ -218,6 +222,24 @@ function formatDiffLines(patch = "") {
   }));
 }
 
+function getTextByteLength(value = "") {
+  const text = String(value || "");
+
+  if (!text) {
+    return 0;
+  }
+
+  if (TEXT_ENCODER) {
+    return TEXT_ENCODER.encode(text).length;
+  }
+
+  if (typeof Blob === "function") {
+    return new Blob([text]).size;
+  }
+
+  return text.length;
+}
+
 function readGapPixels(element) {
   const style = globalThis.getComputedStyle?.(element);
   const rawGap = style?.columnGap || style?.gap || "0";
@@ -269,6 +291,7 @@ const model = {
   diffErrorText: "",
   diffFile: null,
   diffLoading: false,
+  diffNoticeText: "",
   diffPatch: "",
   errorText: "",
   fileFilter: "",
@@ -938,6 +961,7 @@ const model = {
     this.diffFile = file;
     this.diffPatch = "";
     this.diffErrorText = "";
+    this.diffNoticeText = "";
     this.diffLoading = true;
     this.refs?.diffDialog?.showModal?.();
 
@@ -949,8 +973,7 @@ const model = {
         path: this.historyPath
       });
 
-      this.diffFile = normalizeCommitFile(result?.file || file);
-      this.diffPatch = String(result?.patch || "No text diff is available for this file.");
+      this.applyDiffResult(result, file);
     } catch (error) {
       logTimeTravelError("openFileDiff failed", error);
       this.diffErrorText = String(error?.message || "Unable to load file diff.");
@@ -969,6 +992,7 @@ const model = {
     this.diffFile = file;
     this.diffPatch = "";
     this.diffErrorText = "";
+    this.diffNoticeText = "";
     this.diffLoading = true;
     this.refs?.diffDialog?.showModal?.();
 
@@ -981,8 +1005,7 @@ const model = {
         path: this.historyPath
       });
 
-      this.diffFile = normalizeCommitFile(result?.file || file);
-      this.diffPatch = String(result?.patch || "No text diff is available for this file.");
+      this.applyDiffResult(result, file);
     } catch (error) {
       logTimeTravelError("openActionFileDiff failed", error);
       this.diffErrorText = String(error?.message || "Unable to load file diff.");
@@ -993,6 +1016,7 @@ const model = {
 
   closeDiffDialog() {
     this.refs?.diffDialog?.close?.();
+    this.diffNoticeText = "";
     this.diffLoading = false;
   },
 
@@ -1071,6 +1095,26 @@ const model = {
 
   getFileActionClass(file) {
     return `is-${normalizeFileAction(file?.action)}`;
+  },
+
+  applyDiffResult(result, file) {
+    const patch = String(result?.patch || "");
+
+    this.diffFile = normalizeCommitFile(result?.file || file);
+    this.diffPatch = "";
+    this.diffNoticeText = "";
+
+    if (!patch) {
+      this.diffPatch = NO_TEXT_DIFF_MESSAGE;
+      return;
+    }
+
+    if (getTextByteLength(patch) > MAX_DIFF_DISPLAY_BYTES) {
+      this.diffNoticeText = DIFF_TOO_LARGE_MESSAGE;
+      return;
+    }
+
+    this.diffPatch = patch;
   },
 
   setStatus(text = "", tone = "") {

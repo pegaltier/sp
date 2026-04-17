@@ -39,6 +39,7 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,200}$/u;
 const REMOTE_ADDRESS_MAX_LENGTH = 256;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{16,200}$/u;
+const USER_CRYPTO_SESSION_KEY_PREFIX = "space-user-crypto-session-key-v1";
 const SESSION_SIGNATURE_PREFIX = "space-session-record-v1";
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,200}$/u;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -226,6 +227,20 @@ function createSessionVerifier(sessionToken, authKeys) {
   return encodeBase64Url(
     createHmac("sha256", getSessionHmacKey(authKeys))
       .update(`${SESSION_VERIFIER_PREFIX}:${sessionToken}`)
+      .digest()
+  );
+}
+
+function createUserCryptoSessionStorageKey(sessionId, authKeys) {
+  const normalizedSessionId = normalizeSessionId(sessionId);
+
+  if (!normalizedSessionId) {
+    return "";
+  }
+
+  return encodeBase64Url(
+    createHmac("sha256", getSessionHmacKey(authKeys))
+      .update(`${USER_CRYPTO_SESSION_KEY_PREFIX}:${normalizedSessionId}`)
       .digest()
   );
 }
@@ -715,6 +730,15 @@ export function createAuthService(options = {}) {
     return true;
   }
 
+  function getUserCryptoSessionStorageKey(requestUser) {
+    if (isSingleUserApp(runtimeParams)) {
+      return "";
+    }
+
+    const authenticatedUser = getAuthenticatedUser(requestUser);
+    return createUserCryptoSessionStorageKey(authenticatedUser?.session?.sessionId, authKeys);
+  }
+
   function changePassword({ currentPassword, newPassword, requestUser, userCryptoRecord }) {
     if (isSingleUserApp(runtimeParams)) {
       throw createStatusError("Password login is disabled in single-user mode.", 403);
@@ -839,6 +863,7 @@ export function createAuthService(options = {}) {
     createSessionCookieHeader,
     generatePasswordVerifier,
     getAuthenticatedUser,
+    getUserCryptoSessionStorageKey,
     getUserIndex,
     initialize,
     revokeSession,

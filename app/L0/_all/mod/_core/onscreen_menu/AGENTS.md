@@ -48,7 +48,7 @@ Current behavior:
 - the Admin item is contributed by `_core/admin` with `data-order="400"` and owns the `/admin?url=<current-path-search-hash>` handoff
 - the local auth exit action is rendered after `_core/onscreen_menu/items`
 - when frontend config reports `SINGLE_USER_APP=true`, the local auth exit action is labeled Leave, clears the current tab's launcher-access grant, and navigates to `/enter`
-- otherwise, the local auth exit action is labeled Logout and navigates to `/logout`
+- otherwise, the local auth exit action is labeled Logout, clears the current `space.utils.userCrypto` browser cache before navigation, and then navigates to `/logout`
 
 ## Development Guidance
 

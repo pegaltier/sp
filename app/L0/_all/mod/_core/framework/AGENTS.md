@@ -51,7 +51,7 @@ Current boot order:
 - `space.fw.createStore`
 - `space.utils.markdown.render(text, target)` as a simple browser wrapper around the shared marked renderer; it replaces `target` contents with a `.markdown` root when a target is provided
 - `space.utils.markdown.parseDocument`
-- `space.utils.userCrypto`, which exposes session-scoped per-user encrypt or decrypt helpers plus password-rewrap support for browser-owned secret fields, and falls back to plaintext pass-through when `SINGLE_USER_APP=true`
+- `space.utils.userCrypto`, which exposes per-user encrypt or decrypt helpers plus password-rewrap support for browser-owned secret fields, restores the active login from per-tab `sessionStorage` first and then from one encrypted `localStorage` blob by calling `/api/user_crypto_session_key` for the current session-derived wrapping key, clears both browser caches through `clearSession()`, logs the user out when that local blob cannot be decrypted for the current authenticated session, and falls back to plaintext pass-through when `SINGLE_USER_APP=true`
 - `space.utils.yaml.parse` and `stringify`, backed by the shared project-owned lightweight YAML utility in `js/yaml-lite.js` so browser-side YAML behavior matches the server imports while still supporting multiline block scalars, compact list-item maps, and readable nested structured output
 - `space.proxy`
 - `space.download`

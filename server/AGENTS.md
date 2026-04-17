@@ -86,7 +86,7 @@ Parent and child split rules:
 - resolve server-owned Git operations such as local history and Git-backed module installs through the shared backend abstraction, with `GIT_BACKEND=auto` as the default fallback mode and optional forcing to `native`, `nodegit`, or `isomorphic`
 - optionally enforce `USER_FOLDER_SIZE_LIMIT_BYTES` for each on-disk `L2/<user>/` folder through app-file mutation quota checks that use cached per-user size totals
 - run deterministic primary-owned periodic maintenance jobs from `server/jobs/` for backend-enforced cleanup such as guest-account pruning
-- keep the backend-only auth secrets outside the logical app tree, using shared environment injection via `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` plus local gitignored fallback storage under `server/data/` by default or `SPACE_AUTH_DATA_DIR` when that override is set; `userCrypto` also keeps a local backend-share cache there, while the shared `L2/<username>/meta/user_crypto.json` record carries a backend-sealed copy for multi-instance recovery
+- keep the backend-only auth secrets outside the logical app tree, using shared environment injection via `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` plus local gitignored fallback storage under `server/data/` by default or `SPACE_AUTH_DATA_DIR` when that override is set; `userCrypto` also keeps a local backend-share cache there, while the shared `L2/<username>/meta/user_crypto.json` record carries a backend-sealed share copy for multi-instance recovery
 - manage `server/tmp/` as janitor-backed transient storage for low-RAM server-side artifacts such as folder-download archives
 - resolve runtime parameters from launch overrides, stored `.env` values, process environment variables, and schema defaults, including backend storage parameters such as `CUSTOMWARE_PATH`
 - when `WORKERS>1`, run a clustered primary-plus-worker runtime where the primary owns authoritative shared state and the live watchdog while workers serve HTTP in parallel
@@ -136,6 +136,7 @@ Core runtime contracts:
 
 - request identity is derived from the server-issued `space_session` cookie via router-side request context plus the auth service
 - the raw `space_session` cookie remains a browser bearer token, but `L2/<username>/meta/logins.json` stores only backend-keyed verifiers plus signed metadata, including a stable backend-generated `sessionId`, so reading app-side session files does not reveal a replayable cookie
+- when the current login is allowed to auto-restore `userCrypto` on the same browser profile, the browser keeps only one encrypted `localStorage` blob; the authenticated `user_crypto_session_key` endpoint derives the wrapping key from the current backend `sessionId` plus the server-held session secret, and the server never persists that wrapping key or the unwrapped user master key
 - password verifiers remain in `L2/<username>/meta/password.json`, but the SCRAM verifier is sealed with a backend-held key so the file is no longer self-sufficient
 - per-user wrapped browser-encryption state may also live in `L2/<username>/meta/user_crypto.json`; that record now includes a backend-sealed server-share envelope for multi-instance recovery, while a local backend-share cache may also live under `server/data/user_crypto/` or the matching `SPACE_AUTH_DATA_DIR/user_crypto/` override path; the plaintext share is never stored in the app tree
 - `WORKERS` defaults to `1`; when it is greater than `1`, the runtime forks HTTP workers, keeps the primary as the authoritative watchdog and unified state owner, lets workers perform normal request work and filesystem mutations locally, and publishes versioned state deltas or snapshots back out from the primary after those mutations commit; worker-owned writes also rely on that same primary post-rebuild path to schedule any debounced writable-layer Git history commits
@@ -155,7 +156,7 @@ Core runtime contracts:
 - `USER_FOLDER_SIZE_LIMIT_BYTES=0` disables user-folder quotas; positive values cap each `L2/<user>/` folder in bytes, block projected growth over the cap, and allow only size-reducing app-file mutations while a folder is already over the cap
 - `/L0/...`, `/L1/...`, and `/L2/...` direct fetches require authentication and use the same read permission model as the file APIs
 - non-`/mod`, non-`/api`, and non-app-fetch requests stay limited to the root page shells and page actions owned by `server/pages/`
-- `/logout` is handled by the pages layer and clears the current session before redirecting to `/login`
+- `/logout` is handled by the pages layer and clears the current session cookie before redirecting to `/login`
 - autoscaled or multi-instance deployments must inject the same `SPACE_AUTH_PASSWORD_SEAL_KEY` and `SPACE_AUTH_SESSION_HMAC_KEY` values into every instance; the local `server/data/` or `SPACE_AUTH_DATA_DIR` fallback is for single-instance development and other shared-filesystem setups
 
 ## Shared Infrastructure Contracts
@@ -217,11 +218,11 @@ Current endpoint families:
 - app files: `file_list`, `file_paths`, `file_read`, `file_write`, `file_delete`, `file_copy`, `file_move`, `file_info`, `folder_download`
 - local history: `git_history_list`, `git_history_diff`, `git_history_preview`, `git_history_rollback`, `git_history_revert`
 - modules: `module_list`, `module_info`, `module_install`, `module_remove`
-- runtime and identity: `extensions_load`, `debug_path_index`, `password_generate`, `password_change`, `user_self_info`
+- runtime and identity: `extensions_load`, `debug_path_index`, `password_generate`, `password_change`, `user_crypto_session_key`, `user_self_info`
 
 `file_write` still defaults to whole-file replacement, but it now also supports append, prepend, and text-insert mutations through the shared file-access layer, so browser callers can update ordinary text files incrementally without fetching and rewriting the full file every time.
 
-`user_self_info` is the canonical authenticated identity snapshot for browser clients. It also carries the current backend `sessionId` plus `userCrypto` readiness fields so browser modules can restore session-scoped decryption state before using encrypted user settings.
+`user_self_info` is the canonical authenticated identity snapshot for browser clients. It also carries the current backend `sessionId` plus `userCrypto` readiness fields so browser modules can restore session-scoped decryption state before using encrypted user settings, while `user_crypto_session_key` returns the current session-derived wrapping key used only to decrypt the encrypted `localStorage` blob for that live authenticated session.
 
 Detailed endpoint behavior now lives in `server/api/AGENTS.md`.
 

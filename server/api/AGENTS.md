@@ -36,7 +36,7 @@ Current rules:
 - these are the only explicit anonymous endpoints today
 - login uses the shared auth service challenge and proof flow unless runtime config disables password login
 - `login_challenge` also reports `userCrypto` bootstrap state; when a legacy account has no `meta/user_crypto.json`, the challenge includes a one-time provisioning share so the browser can generate the missing wrapped record before final login
-- successful login sets the `space_session` cookie through the auth service, writes the durable session verifier into `L2/<username>/meta/logins.json`, and returns a backend `sessionId` plus `userCrypto` unlock payload for the authenticated browser session
+- successful login sets the `space_session` cookie through the auth service, writes the durable session verifier into `L2/<username>/meta/logins.json`, and returns a backend `sessionId` plus the `userCrypto` unlock payload for the authenticated browser session
 - if a legacy account cannot finish `userCrypto` provisioning during login, the server must fail the login instead of issuing the cookie and then forcing a logout
 - `guest_create` creates an `L2` guest user only when runtime config allows guest accounts and must publish the concrete new auth files through the shared mutation path so `user_index` sees the account immediately
 - in clustered runtime, login challenges are stored in the primary-only `login_challenge` state area while workers still validate cookies from replicated auth index shards
@@ -102,6 +102,7 @@ Runtime and identity endpoints:
 - `password_generate`
 - `password_change`
 - `user_crypto_bootstrap`
+- `user_crypto_session_key`
 - `user_self_info`
 
 Important notes:
@@ -110,9 +111,10 @@ Important notes:
 - `extensions_load` should read the replicated shared-state shards for the caller's visible module owners rather than scanning watchdog paths directly
 - `extensions_load` request bodies keep `maxLayer` at the call level; grouped lookups carry ordered `patterns` arrays only, and grouped responses return those normalized `patterns` alongside each request's resolved `extensions`
 - `debug_path_index` is an authenticated debugging endpoint for clustered-runtime verification; it returns filtered local `path_index` entries plus a stable hash so tests can compare worker replicas without walking the filesystem directly
-- `password_change` is an authenticated account endpoint for the current user only; it validates the current password through the auth service, rewrites the backend-sealed verifier, clears stored sessions, and clears the current browser cookie so the frontend can return to `/login`
+- `password_change` is an authenticated account endpoint for the current user only; it validates the current password through the auth service, rewrites the backend-sealed verifier, clears stored sessions, and clears the current browser auth cookie so the frontend can return to `/login`
 - when the current account has a ready `userCrypto` record, `password_change` also requires a browser-produced replacement `userCryptoRecord` so the wrapped key survives self-service password rotation without re-encrypting user data
 - `user_crypto_bootstrap` is an authenticated recovery endpoint for the current user; it reports the current `userCrypto` state and, when that state is `missing`, can mint a provisioning share and later accept the browser-generated wrapped record so the first authenticated app load can self-heal a missing record without requiring a second login
+- `user_crypto_session_key` is an authenticated restore helper endpoint for the current user; it derives and returns the current session's localStorage wrapping key by hashing the backend `sessionId` with the server-held session secret, so the browser can decrypt or encrypt the single encrypted `localStorage` blob without the server persisting that wrapping key or the user master key
 - frontend HTML anchors and JS hooks resolve through `ext/html/...` and `ext/js/...` request paths respectively
 - frontend modules may also enumerate other extension-resolved metadata assets through this endpoint when those files should honor readable-layer permissions plus same-path layered overrides; the current first-party example is `ext/panels/*.yaml`
 - `user_self_info` returns the authenticated user's derived identity plus browser-bootstrap crypto metadata: `{ username, fullName, groups, managedGroups, sessionId, userCryptoKeyId, userCryptoState }`

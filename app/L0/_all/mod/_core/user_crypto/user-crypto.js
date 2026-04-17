@@ -1,6 +1,7 @@
 import {
   buildUserCryptoLoginBootstrapKey,
   buildUserCryptoSessionCacheKey,
+  createUserCryptoLocalStorageEntry,
   createProvisionedUserCryptoRecord,
   createUserCryptoSessionCacheEntry,
   decodeBase64Url,
@@ -9,9 +10,11 @@ import {
   encryptUserCryptoBytes,
   encryptUserCryptoText,
   isUserCryptoEncryptedString,
+  openUserCryptoLocalStorageEntry,
   normalizeUserCryptoLoginBootstrapEntry,
   normalizeUserCryptoSessionCacheEntry,
   rewrapUserCryptoRecord,
+  USER_CRYPTO_LOCAL_STORAGE_KEY,
   USER_CRYPTO_STATUS_INVALIDATED,
   USER_CRYPTO_STATUS_MISSING,
   USER_CRYPTO_STATUS_READY
@@ -176,6 +179,97 @@ function clearCachedSessionState(identity = {}) {
   }
 }
 
+async function readLocalStorageSessionState(sessionKey) {
+  if (!String(sessionKey || "").trim()) {
+    return {
+      cacheEntry: null,
+      exists: false
+    };
+  }
+
+  try {
+    const storageArea = getStorageArea("localStorage");
+    const rawValue = storageArea?.getItem(USER_CRYPTO_LOCAL_STORAGE_KEY);
+
+    if (rawValue === null || rawValue === undefined) {
+      return {
+        cacheEntry: null,
+        exists: false
+      };
+    }
+
+    return {
+      cacheEntry: await openUserCryptoLocalStorageEntry({
+        sessionKey,
+        value: JSON.parse(rawValue)
+      }),
+      exists: true
+    };
+  } catch {
+    return {
+      cacheEntry: null,
+      exists: true
+    };
+  }
+}
+
+async function persistLocalStorageSessionState(entry, sessionKey) {
+  if (!String(sessionKey || "").trim()) {
+    return;
+  }
+
+  try {
+    const storageArea = getStorageArea("localStorage");
+
+    if (!storageArea) {
+      return;
+    }
+
+    const storageEntry = await createUserCryptoLocalStorageEntry({
+      cacheEntry: entry,
+      sessionKey
+    });
+    storageArea.setItem(USER_CRYPTO_LOCAL_STORAGE_KEY, JSON.stringify(storageEntry));
+  } catch {
+    // Ignore localStorage persistence failures and keep the runtime usable.
+  }
+}
+
+function clearLocalStorageSessionState() {
+  try {
+    getStorageArea("localStorage")?.removeItem(USER_CRYPTO_LOCAL_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+async function fetchUserCryptoSessionStorageKey() {
+  const runtime = getRuntime();
+  const response = await runtime.api.call("user_crypto_session_key", {
+    method: "GET"
+  });
+  return String(response?.sessionKey || "").trim();
+}
+
+async function syncLocalStorageSessionState(entry) {
+  try {
+    const sessionKey = await fetchUserCryptoSessionStorageKey();
+
+    if (!sessionKey) {
+      return;
+    }
+
+    await persistLocalStorageSessionState(entry, sessionKey);
+  } catch {
+    // Ignore localStorage sync failures and keep the current unlocked tab usable.
+  }
+}
+
+function redirectToLogoutOnStaleLocalStorage() {
+  clearLocalStorageSessionState();
+  redirectToLogoutOnMissing();
+}
+
 function readLoginBootstrapState(identity) {
   const bootstrapKey = buildUserCryptoLoginBootstrapKey({
     sessionId: identity.sessionId,
@@ -228,7 +322,7 @@ function redirectToLogoutOnMissing() {
   globalThis.location?.assign?.("/logout");
 }
 
-export function storeUnlockedUserCryptoSession({
+export async function storeUnlockedUserCryptoSession({
   keyId,
   masterKey,
   serverShare,
@@ -244,6 +338,7 @@ export function storeUnlockedUserCryptoSession({
   });
 
   persistCachedSessionState(cacheEntry);
+  await syncLocalStorageSessionState(cacheEntry);
   clearLoginBootstrapState(cacheEntry);
   applyCache(cacheEntry);
   return getUserCryptoStatus();
@@ -281,7 +376,7 @@ async function bootstrapMissingUserCrypto(identity, bootstrapEntry) {
     return false;
   }
 
-  storeUnlockedUserCryptoSession({
+  await storeUnlockedUserCryptoSession({
     keyId:
       String(provisionedState?.keyId || "").trim() ||
       String(provisionedUserCrypto?.record?.key_id || "").trim(),
@@ -310,13 +405,44 @@ async function initializeUserCryptoInternal(options = {}) {
   if (cacheEntry) {
     clearLoginBootstrapState(identity);
     applyCache(cacheEntry);
+    await syncLocalStorageSessionState(cacheEntry);
     return getUserCryptoStatus();
+  }
+
+  if (identity.userCryptoState === USER_CRYPTO_STATUS_READY) {
+    try {
+      const sessionKey = await fetchUserCryptoSessionStorageKey();
+      const localStorageState = await readLocalStorageSessionState(sessionKey);
+
+      if (localStorageState.cacheEntry) {
+        persistCachedSessionState(localStorageState.cacheEntry);
+        clearLoginBootstrapState(identity);
+        applyCache(localStorageState.cacheEntry);
+        return getUserCryptoStatus();
+      }
+
+      if (localStorageState.exists) {
+        clearCachedSessionState(identity);
+        clearLoginBootstrapState(identity);
+        clearLocalStorageSessionState();
+        warnOnce("userCrypto local storage is stale for this session. Signing out so it can be rebuilt cleanly.");
+
+        if (options.logOutOnMissing !== false) {
+          redirectToLogoutOnStaleLocalStorage();
+        }
+
+        return getUserCryptoStatus();
+      }
+    } catch {
+      // Ignore localStorage restore failures and continue with the current remote state.
+    }
   }
 
   applyRemoteState(identity);
 
   if (identity.userCryptoState === USER_CRYPTO_STATUS_MISSING) {
     clearCachedSessionState(identity);
+    clearLocalStorageSessionState();
 
     if (bootstrapEntry) {
       try {
@@ -341,6 +467,7 @@ async function initializeUserCryptoInternal(options = {}) {
 
   if (identity.userCryptoState === USER_CRYPTO_STATUS_INVALIDATED) {
     clearCachedSessionState(identity);
+    clearLocalStorageSessionState();
     clearLoginBootstrapState(identity);
     warnOnce("userCrypto is invalidated for this account. Encrypted values will load as empty.");
     return getUserCryptoStatus();
@@ -400,6 +527,11 @@ export function clearUserCryptoSession() {
   }
 
   clearCachedSessionState({
+    sessionId: state.sessionId,
+    username: state.username
+  });
+  clearLocalStorageSessionState();
+  clearLoginBootstrapState({
     sessionId: state.sessionId,
     username: state.username
   });

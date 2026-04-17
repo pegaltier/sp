@@ -6,6 +6,32 @@
     <meta name="application-name" content="Space Agent" />
     <meta name="apple-mobile-web-app-title" content="Space Agent" />
     <meta name="theme-color" content="#050816" />
+    <meta
+      name="description"
+      content="Browser-first AI agent runtime for building your own AI spaces, tools, and workflows directly in the browser."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Space Agent" />
+    <meta property="og:title" content="Space Agent | Browser-First AI Agent Runtime" />
+    <meta
+      property="og:description"
+      content="Browser-first AI agent runtime for building your own AI spaces, tools, and workflows directly in the browser."
+    />
+    <meta property="og:url" content="https://space-agent.ai/" />
+    <meta property="og:image" content="https://space-agent.ai/pages/res/readme-banner.webp" />
+    <meta property="og:image:type" content="image/webp" />
+    <meta property="og:image:width" content="1774" />
+    <meta property="og:image:height" content="887" />
+    <meta property="og:image:alt" content="Space Agent banner" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Space Agent | Browser-First AI Agent Runtime" />
+    <meta
+      name="twitter:description"
+      content="Browser-first AI agent runtime for building your own AI spaces, tools, and workflows directly in the browser."
+    />
+    <meta name="twitter:url" content="https://space-agent.ai/" />
+    <meta name="twitter:image" content="https://space-agent.ai/pages/res/readme-banner.webp" />
+    <meta name="twitter:image:alt" content="Space Agent banner" />
     <title>Enter Space | Space Agent</title>
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
@@ -399,6 +425,109 @@
         word-break: break-word;
       }
 
+      .run-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 14;
+        display: grid;
+        place-items: center;
+        padding: clamp(1rem, 4vw, 2rem);
+      }
+
+      .run-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 28% 20%, rgba(125, 220, 255, 0.12), transparent 32rem),
+          rgba(2, 7, 17, 0.78);
+        backdrop-filter: blur(12px);
+      }
+
+      .run-modal-dialog {
+        position: relative;
+        z-index: 1;
+        width: min(36rem, 100%);
+        max-height: min(42rem, calc(100vh - 2rem));
+        overflow-y: auto;
+        padding: 1.35rem;
+        border: 1px solid var(--color-border-strong);
+        border-radius: 8px;
+        background: linear-gradient(180deg, rgba(10, 17, 31, 0.96), rgba(6, 12, 23, 0.94));
+        box-shadow:
+          0 28px 72px rgba(0, 0, 0, 0.48),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      }
+
+      .run-modal-title {
+        margin: 0.3rem 0 0;
+        font-size: 2rem;
+        letter-spacing: 0;
+        line-height: 1.05;
+      }
+
+      .run-modal-subtitle {
+        margin: 0.75rem 0 0;
+        color: var(--color-text-secondary);
+        line-height: 1.55;
+      }
+
+      .restart-modal-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.85rem;
+        margin-top: 1.35rem;
+      }
+
+      .restart-modal-button {
+        appearance: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 3.25rem;
+        padding: 0.9rem 1rem;
+        border: 1px solid var(--color-border-soft);
+        border-radius: 8px;
+        color: var(--color-text-primary);
+        font: inherit;
+        font-weight: 700;
+        line-height: 1.2;
+        text-align: center;
+        cursor: pointer;
+        background: rgba(255, 255, 255, 0.035);
+        transition:
+          background-color 160ms ease,
+          border-color 160ms ease,
+          box-shadow 160ms ease,
+          color 160ms ease,
+          opacity 160ms ease;
+      }
+
+      .restart-modal-button:hover {
+        border-color: rgba(125, 220, 255, 0.38);
+        background: rgba(125, 220, 255, 0.08);
+      }
+
+      .restart-modal-button:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(125, 220, 255, 0.12);
+      }
+
+      .restart-modal-button[disabled] {
+        cursor: progress;
+        opacity: 0.72;
+      }
+
+      .restart-modal-button-primary {
+        color: var(--color-accent-ink);
+        background: linear-gradient(135deg, var(--color-accent-primary-strong), var(--color-accent-secondary));
+        border-color: transparent;
+      }
+
+      .restart-modal-button-primary:hover {
+        border-color: transparent;
+        background: linear-gradient(135deg, #a4c7ff, #8ef2df);
+      }
+
       .shell-footer {
         grid-column: 1 / -1;
         display: grid;
@@ -559,6 +688,28 @@
         .launcher-link {
           padding-block: 0.88rem;
         }
+
+        .run-modal {
+          align-items: end;
+          padding: 0.75rem;
+        }
+
+        .run-modal-dialog {
+          max-height: min(42rem, calc(100vh - 1.5rem));
+          padding: 1rem;
+        }
+
+        .run-modal-title {
+          font-size: 1.6rem;
+        }
+
+        .run-modal-subtitle {
+          font-size: 0.95rem;
+        }
+
+        .restart-modal-actions {
+          grid-template-columns: 1fr;
+        }
       }
     </style>
   </head>
@@ -702,6 +853,40 @@
         </p>
       </div>
     </main>
+    <div
+      id="restart-update-modal"
+      class="run-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="restart-update-title"
+      hidden
+    >
+      <div class="run-modal-backdrop" data-restart-modal-close></div>
+      <section class="run-modal-dialog" tabindex="-1">
+        <h2 id="restart-update-title" class="run-modal-title">Restart and update</h2>
+        <p class="run-modal-subtitle">
+          The app is going to quit and update in the background. It can take a minute before
+          it starts again. Do not try to relaunch it immediately.
+        </p>
+        <div class="restart-modal-actions">
+          <button
+            id="restart-update-confirm"
+            class="restart-modal-button restart-modal-button-primary"
+            type="button"
+          >
+            Okay, restart
+          </button>
+          <button
+            id="restart-update-cancel"
+            class="restart-modal-button"
+            type="button"
+            data-restart-modal-close
+          >
+            Back
+          </button>
+        </div>
+      </section>
+    </div>
     <script src="/pages/res/space-backdrop.js"></script>
     <script src="/pages/res/browser-compat.js"></script>
     <script>
@@ -722,6 +907,11 @@
       const desktopUpdateNoteDetails = document.getElementById("desktop-update-note-details");
       const desktopUpdateNoteSummary = document.getElementById("desktop-update-note-summary");
       const desktopUpdateNoteDetailsText = document.getElementById("desktop-update-note-details-text");
+      const restartUpdateModal = document.getElementById("restart-update-modal");
+      const restartUpdateDialog = restartUpdateModal?.querySelector(".run-modal-dialog");
+      const restartUpdateConfirmButton = document.getElementById("restart-update-confirm");
+      const restartUpdateCancelButton = document.getElementById("restart-update-cancel");
+      const restartUpdateCloseTargets = document.querySelectorAll("[data-restart-modal-close]");
       const LAUNCHER_EXIT_FADE_MS = 260;
       const TAU = Math.PI * 2;
       const TITLE_FLOAT_PARAMS = Object.freeze({
@@ -776,6 +966,7 @@
       const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
       let introFloatFrame = 0;
       let introFloatStartTime = 0;
+      let previousModalFocus = null;
 
       window.SpaceBackdrop?.install?.(spaceBackdropRoot, {
         canvas: spaceThemeCanvas,
@@ -840,6 +1031,48 @@
         desktopUpdateNoteDetailsText.textContent = showExpandable ? normalizedMessage : "";
       }
 
+      function openRestartUpdateModal() {
+        if (!restartUpdateModal || !restartUpdateConfirmButton) {
+          return;
+        }
+
+        previousModalFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        restartUpdateModal.hidden = false;
+        restartUpdateConfirmButton.disabled = false;
+        if (restartUpdateCancelButton) {
+          restartUpdateCancelButton.disabled = false;
+        }
+        document.body.style.overflow = "hidden";
+        window.requestAnimationFrame(() => {
+          restartUpdateDialog?.focus();
+        });
+      }
+
+      function closeRestartUpdateModal({ restoreFocus = true } = {}) {
+        if (!restartUpdateModal || restartUpdateModal.hidden) {
+          return;
+        }
+
+        restartUpdateModal.hidden = true;
+        document.body.style.overflow = "";
+
+        if (restoreFocus) {
+          previousModalFocus?.focus?.();
+        }
+
+        previousModalFocus = null;
+      }
+
+      function setRestartModalBusy(isBusy) {
+        if (restartUpdateConfirmButton) {
+          restartUpdateConfirmButton.disabled = Boolean(isBusy);
+        }
+
+        if (restartUpdateCancelButton) {
+          restartUpdateCancelButton.disabled = Boolean(isBusy);
+        }
+      }
+
       function formatDesktopDisplayVersion(value) {
         const normalized = typeof value === "string" ? value.trim().replace(/^v/u, "") : "";
         const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)$/u);
@@ -868,6 +1101,7 @@
         let buttonLabel = "";
         let showButton = false;
         let noteExpandable = false;
+        let showFailureNote = false;
 
         if (statusKey === "update-available") {
           buttonLabel = version ? "Update to " + version : "Update Now";
@@ -887,6 +1121,13 @@
           message = "";
         } else if (statusKey === "error") {
           noteExpandable = Boolean(message);
+          showFailureNote = Boolean(message);
+        }
+
+        if (statusKey !== "downloaded") {
+          closeRestartUpdateModal({
+            restoreFocus: false
+          });
         }
 
         desktopUpdateButton.hidden = !showButton;
@@ -894,7 +1135,7 @@
         setDesktopUpdateButtonBusy(statusKey === "downloading");
 
         renderDesktopUpdateNote(
-          noteExpandable ? message : message,
+          showFailureNote ? message : "",
           noteExpandable
             ? { expandable: true, summaryText: "Could not check updates" }
             : { expandable: false }
@@ -949,8 +1190,7 @@
 
           try {
             if (currentUpdateState.state === "downloaded") {
-              await playLauncherExitFade();
-              await desktopApi.installUpdate();
+              openRestartUpdateModal();
               return;
             }
 
@@ -998,6 +1238,58 @@
       }
 
       initializeDesktopUpdateButton();
+
+      async function handleRestartUpdateConfirm() {
+        if (restartUpdateConfirmButton?.disabled) {
+          return;
+        }
+
+        const desktopApi = window.space;
+        if (!desktopApi || typeof desktopApi.installUpdate !== "function") {
+          return;
+        }
+
+        try {
+          setRestartModalBusy(true);
+          closeRestartUpdateModal({
+            restoreFocus: false
+          });
+          await playLauncherExitFade();
+          await desktopApi.installUpdate();
+        } catch (error) {
+          resetLauncherExitFade();
+          setRestartModalBusy(false);
+          const message = error instanceof Error ? error.message : String(error || "Desktop update failed.");
+          console.error("[space-enter] Desktop update install failed.", error);
+          renderDesktopUpdateState({
+            state: "error",
+            message
+          });
+        }
+      }
+
+      function handleRestartModalKeydown(event) {
+        if (event.key === "Escape" && restartUpdateModal && !restartUpdateModal.hidden) {
+          event.preventDefault();
+          if (restartUpdateCancelButton?.disabled) {
+            return;
+          }
+
+          closeRestartUpdateModal();
+        }
+      }
+
+      restartUpdateConfirmButton?.addEventListener("click", handleRestartUpdateConfirm);
+      restartUpdateCloseTargets.forEach((target) => {
+        target.addEventListener("click", () => {
+          if (restartUpdateCancelButton?.disabled) {
+            return;
+          }
+
+          closeRestartUpdateModal();
+        });
+      });
+      document.addEventListener("keydown", handleRestartModalKeydown);
 
       function setIntroTitlePose(x, y, rotation) {
         if (!introTitle) {

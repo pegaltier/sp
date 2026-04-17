@@ -21,7 +21,11 @@ const ROOT_PAGE_RESOURCE_ALIASES = new Map([
   ["/apple-touch-icon.png", "/res/apple-touch-icon.png"],
   ["/android-chrome-192x192.png", "/res/android-chrome-192x192.png"],
   ["/android-chrome-512x512.png", "/res/android-chrome-512x512.png"],
-  ["/site.webmanifest", "/res/site.webmanifest"]
+  ["/site.webmanifest", "/res/site.webmanifest"],
+  ["/robots.txt", "/robots.txt"],
+  ["/llms.txt", "/llms.txt"],
+  ["/llms-full.txt", "/llms-full.txt"],
+  ["/sitemap.xml", "/sitemap.xml"]
 ]);
 const FRONTEND_CONFIG_META_NAME = "space-config";
 const ENTER_GUARD_PLACEHOLDER = "<!-- SPACE_SINGLE_USER_ENTER_GUARD -->";

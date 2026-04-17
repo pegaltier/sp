@@ -120,6 +120,9 @@
     },
     openLogout() {
       this.isOpen = false;
+      try {
+        window.space?.utils?.userCrypto?.clearSession?.();
+      } catch {}
       this.navigateTop('/logout');
     },
     openLeave() {

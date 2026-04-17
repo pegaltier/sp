@@ -27,9 +27,15 @@ const arrowKeyOffset = {
 
 const pageModel = {
   activeTab: "dashboard",
+  isOverflowMenuOpen: false,
   userSelfInfo: null,
   userSelfInfoLoaded: false,
   userSelfInfoPromise: null,
+  tabLayoutFrame: 0,
+  tabLayoutObserver: null,
+  tabLayoutResizeHandler: null,
+  tabsCollapsed: false,
+  tabsCompact: false,
   refs: {},
   quickActions,
   tabs,
@@ -44,10 +50,14 @@ const pageModel = {
 
   mount(refs = {}) {
     this.refs = refs;
+    this.mountTabLayoutTracking();
+    this.scheduleTabLayoutSync();
     void this.loadUserSelfInfo();
   },
 
   unmount() {
+    this.unmountTabLayoutTracking();
+    this.isOverflowMenuOpen = false;
     this.refs = {};
   },
 
@@ -58,12 +68,96 @@ const pageModel = {
     );
   },
 
+  get visibleTabs() {
+    if (!this.tabsCollapsed) {
+      return this.tabs;
+    }
+
+    const activeTab = this.tabs.find((tab) => tab.id === this.activeTab);
+    return activeTab ? [activeTab] : this.tabs.slice(0, 1);
+  },
+
   isKnownTab(tabId) {
     return this.tabs.some((tab) => tab.id === tabId);
   },
 
   isTabActive(tabId) {
     return this.activeTab === tabId;
+  },
+
+  mountTabLayoutTracking() {
+    this.unmountTabLayoutTracking();
+
+    this.tabLayoutResizeHandler = () => this.scheduleTabLayoutSync();
+    globalThis.window?.addEventListener("resize", this.tabLayoutResizeHandler);
+
+    if (typeof ResizeObserver === "function") {
+      this.tabLayoutObserver = new ResizeObserver(() => this.scheduleTabLayoutSync());
+
+      [this.refs.topbar, this.refs.topbarMeasure, this.refs.topbarCompactMeasure].forEach((element) => {
+        if (element) {
+          this.tabLayoutObserver.observe(element);
+        }
+      });
+    }
+
+    const fontsReady = globalThis.document?.fonts?.ready;
+
+    if (fontsReady?.then) {
+      void fontsReady.then(() => this.scheduleTabLayoutSync());
+    }
+  },
+
+  unmountTabLayoutTracking() {
+    if (this.tabLayoutObserver) {
+      this.tabLayoutObserver.disconnect();
+      this.tabLayoutObserver = null;
+    }
+
+    if (this.tabLayoutResizeHandler) {
+      globalThis.window?.removeEventListener("resize", this.tabLayoutResizeHandler);
+      this.tabLayoutResizeHandler = null;
+    }
+
+    if (this.tabLayoutFrame) {
+      cancelAnimationFrame(this.tabLayoutFrame);
+      this.tabLayoutFrame = 0;
+    }
+  },
+
+  scheduleTabLayoutSync() {
+    if (this.tabLayoutFrame) {
+      return;
+    }
+
+    this.tabLayoutFrame = requestAnimationFrame(() => {
+      this.tabLayoutFrame = 0;
+      this.syncTabLayout();
+    });
+  },
+
+  syncTabLayout() {
+    const topbar = this.refs.topbar;
+    const topbarMeasure = this.refs.topbarMeasure;
+    const topbarCompactMeasure = this.refs.topbarCompactMeasure;
+
+    if (!topbar || !topbarMeasure || !topbarCompactMeasure) {
+      this.tabsCollapsed = false;
+      this.tabsCompact = false;
+      return;
+    }
+
+    const availableWidth = Math.floor(topbar.clientWidth) + 1;
+    const expandedWidth = Math.ceil(topbarMeasure.scrollWidth);
+    const compactWidth = Math.ceil(topbarCompactMeasure.scrollWidth);
+    const shouldCollapse = compactWidth > availableWidth;
+
+    this.tabsCollapsed = shouldCollapse;
+    this.tabsCompact = !shouldCollapse && expandedWidth > availableWidth;
+
+    if (!shouldCollapse) {
+      this.isOverflowMenuOpen = false;
+    }
   },
 
   restoreActiveTab() {
@@ -124,11 +218,30 @@ const pageModel = {
     }
 
     this.activeTab = tabId;
+    this.isOverflowMenuOpen = false;
     this.persistActiveTab();
+    this.scheduleTabLayoutSync();
+  },
+
+  selectTabFromMenu(tabId) {
+    this.selectTab(tabId);
+    requestAnimationFrame(() => this.focusTab(tabId));
   },
 
   focusTab(tabId) {
     this.refs.tabBar?.querySelector(`[data-tab-id="${tabId}"]`)?.focus();
+  },
+
+  toggleOverflowMenu() {
+    if (!this.tabsCollapsed) {
+      return;
+    }
+
+    this.isOverflowMenuOpen = !this.isOverflowMenuOpen;
+  },
+
+  closeOverflowMenu() {
+    this.isOverflowMenuOpen = false;
   },
 
   selectRelativeTab(tabId, offset) {

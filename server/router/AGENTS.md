@@ -69,12 +69,14 @@ Current behavior:
 Pages:
 
 - `pages_handler.js` is the only owner of page auth gating, pretty-route redirects, `/logout`, `/pages/res/...`, root favicon and manifest aliases, injected frontend runtime-config meta tags, and project-version placeholder injection
+- `pages_handler.js` is also the only owner of the public root crawler and LLM discovery aliases for `/robots.txt`, `/llms.txt`, `/llms-full.txt`, and `/sitemap.xml`
 - `/login` is public
 - `/enter` serves the firmware-backed launcher shell for launcher-eligible sessions: always in `SINGLE_USER_APP=true`, and also for authenticated multi-user requests; unauthenticated multi-user requests are redirected to `/login`
 - `pages_handler.js` injects a pre-module page-shell guard into `/` and `/admin` whenever the current request already has launcher access, so a new browser-opened tab or window is redirected to `/enter?next=<current-url>` while reloads in the same tab keep loading normally; the framework may pre-grant that same access marker for its own same-origin `_blank` opens before the guarded page loads
 - page shells that declare the `SPACE_PROJECT_VERSION` placeholder receive the resolved project version string from `server/lib/utils/project_version.js`; `/login` and `/enter` use this for the centered public-shell version label
 - root requests for `/favicon.ico`, `/favicon-16x16.png`, `/favicon-32x32.png`, `/apple-touch-icon.png`, `/android-chrome-192x192.png`, `/android-chrome-512x512.png`, and `/site.webmanifest` are served from `server/pages/res/` without authentication so page heads can use platform-standard asset URLs
-- `/logout` redirects to `/login`
+- root requests for `/robots.txt`, `/llms.txt`, `/llms-full.txt`, and `/sitemap.xml` are served from `server/pages/` without authentication so crawlers and LLM tooling can discover the public site summary and indexable entry points
+- `/logout` redirects to `/login` after clearing the current auth cookie
 - `/` and `/admin` require authentication
 
 Modules:

@@ -41,6 +41,7 @@ This module owns:
 - the commit-pill overflow marker must be the first pill, and its count must include every changed file not actually rendered because of the 10-file cap or the measured three-row fit
 - the selected-commit detail header should show separate outline pills for added, modified, and deleted file counts when those counts are non-zero
 - changed-file detail rows should use neutral row chrome, color only the action icon, and open a colorized diff modal through `space.api.gitHistoryDiff(...)`
+- the shared diff dialog must refuse to render patch bodies larger than 1 MB and should show a short explanatory notice instead, so routed and admin Time Travel reuse the same DOM-safety guard
 - left and right panels should remain viewport-height bounded and scroll their own content independently so long file lists do not push pagination or actions offscreen
 - travel and revert buttons open a preview dialog through `space.api.gitHistoryPreview(...)`; the dialog lists affected files and lets users open operation-specific file diffs before confirming
 - travel calls `space.api.gitHistoryRollback({ path: historyPath, commitHash })` after preview confirmation

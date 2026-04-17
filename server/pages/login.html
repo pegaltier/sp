@@ -6,6 +6,32 @@
     <meta name="application-name" content="Space Agent" />
     <meta name="apple-mobile-web-app-title" content="Space Agent" />
     <meta name="theme-color" content="#050816" />
+    <meta
+      name="description"
+      content="Browser-first AI agent runtime for building your own AI spaces, tools, and workflows directly in the browser."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Space Agent" />
+    <meta property="og:title" content="Space Agent | Browser-First AI Agent Runtime" />
+    <meta
+      property="og:description"
+      content="Browser-first AI agent runtime for building your own AI spaces, tools, and workflows directly in the browser."
+    />
+    <meta property="og:url" content="https://space-agent.ai/" />
+    <meta property="og:image" content="https://space-agent.ai/pages/res/readme-banner.webp" />
+    <meta property="og:image:type" content="image/webp" />
+    <meta property="og:image:width" content="1774" />
+    <meta property="og:image:height" content="887" />
+    <meta property="og:image:alt" content="Space Agent banner" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Space Agent | Browser-First AI Agent Runtime" />
+    <meta
+      name="twitter:description"
+      content="Browser-first AI agent runtime for building your own AI spaces, tools, and workflows directly in the browser."
+    />
+    <meta name="twitter:url" content="https://space-agent.ai/" />
+    <meta name="twitter:image" content="https://space-agent.ai/pages/res/readme-banner.webp" />
+    <meta name="twitter:image:alt" content="Space Agent banner" />
     <title>Login | Space Agent</title>
     <link rel="shortcut icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
@@ -1529,7 +1555,10 @@
         const userCryptoState = String(userCrypto?.state || "").trim();
 
         if (userCryptoState !== "ready") {
-          return userCryptoState;
+          return {
+            cacheEntry: null,
+            state: userCryptoState
+          };
         }
 
         const record = userCryptoModule.normalizeUserCryptoRecord(userCrypto?.record);
@@ -1566,7 +1595,36 @@
           // Keep going so login still succeeds when sessionStorage is blocked.
         }
 
-        return userCryptoState;
+        return {
+          cacheEntry,
+          state: userCryptoState
+        };
+      }
+
+      async function persistLocalStorageUserCryptoSession(cacheEntry) {
+        const userCryptoModule = await userCryptoModulePromise;
+        const storageKey = String(userCryptoModule.USER_CRYPTO_LOCAL_STORAGE_KEY || "");
+
+        if (!storageKey || !cacheEntry) {
+          return;
+        }
+
+        try {
+          const sessionKeyResponse = await getJson("/api/user_crypto_session_key");
+          const sessionKey = String(sessionKeyResponse?.sessionKey || "").trim();
+
+          if (!sessionKey) {
+            return;
+          }
+
+          const storageEntry = await userCryptoModule.createUserCryptoLocalStorageEntry({
+            cacheEntry,
+            sessionKey
+          });
+          window.localStorage.setItem(storageKey, JSON.stringify(storageEntry));
+        } catch {
+          // Ignore localStorage persistence failures and keep sign-in working.
+        }
       }
 
       async function persistUserCryptoLoginBootstrap({
@@ -1604,6 +1662,20 @@
             "Content-Type": "application/json"
           },
           body: JSON.stringify(body)
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Request failed.");
+        }
+
+        return payload;
+      }
+
+      async function getJson(path) {
+        const response = await fetch(path, {
+          method: "GET"
         });
 
         const payload = await response.json().catch(() => ({}));
@@ -1710,7 +1782,7 @@
             });
           }
 
-          const finalUserCryptoState = await persistUnlockedUserCryptoSession({
+          const unlockedUserCryptoSession = await persistUnlockedUserCryptoSession({
             password,
             passwordIterations: Number(challenge.iterations),
             passwordSalt: userCryptoModule.decodeBase64Url(challenge.salt),
@@ -1721,7 +1793,11 @@
             username
           });
 
-          if (finalUserCryptoState === "missing") {
+          if (unlockedUserCryptoSession.cacheEntry) {
+            await persistLocalStorageUserCryptoSession(unlockedUserCryptoSession.cacheEntry);
+          }
+
+          if (unlockedUserCryptoSession.state === "missing") {
             throw new Error("Login completed without a usable user crypto record. Try again.");
           }
 

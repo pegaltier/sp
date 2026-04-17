@@ -12,7 +12,7 @@ Documentation is top priority for this subtree. After any change under `server/l
 
 Current files:
 
-- `service.js`: login challenge creation, login completion, self-service password change, session-cookie helpers, session revocation, and request-user resolution
+- `service.js`: login challenge creation, login completion, self-service password change, session-cookie helpers, session revocation, request-user resolution, and session-derived `userCrypto` localStorage-key derivation
 - `keys_manage.js`: backend-only auth-key loading from shared env injection or local fallback storage at `server/data/auth_keys.json` by default or `SPACE_AUTH_DATA_DIR/auth_keys.json` when that override is set
 - `passwords.js`: verifier and proof helpers
 - `user_crypto.js`: persistent wrapped user-key record helpers, backend-sealed server-share recovery, local backend-share cache storage, and invalidation
@@ -45,8 +45,9 @@ Current session rules:
 - login uses the shared challenge and proof flow from `service.js`
 - `login_challenge` returns the password-proof inputs plus `userCrypto` state; legacy users with no `meta/user_crypto.json` record receive a one-time provisioning share inside that challenge
 - accounts that still have a wrapped user key record but no recoverable server share are treated as `invalidated`, not `missing`, so the browser does not silently reprovision over old ciphertext
-- `login` finalization may persist the missing `meta/user_crypto.json` record before issuing the cookie, and successful logins return both a backend `sessionId` and a `userCrypto` payload for the browser session bootstrap
+- `login` finalization may persist the missing `meta/user_crypto.json` record before issuing the cookie, and successful logins return a backend `sessionId` plus a `userCrypto` payload for the browser session bootstrap
 - successful login writes a backend-keyed session verifier plus signed metadata into `meta/logins.json` and publishes the changed logical auth paths through the shared mutation-commit flow
+- authenticated `user_crypto_session_key` calls derive a 32-byte localStorage wrapping key by HMACing the current backend `sessionId` with the shared session HMAC key; the server does not persist per-session restore grants or any copy of the browser's unwrapped user master key
 - when `CUSTOMWARE_GIT_HISTORY` is enabled, login, logout, verifier migration, user creation, and password reset writes may schedule the affected user's debounced local-history check, but `meta/password.json` and `meta/logins.json` are ignored by the L2 history repo and preserved during rollback; clustered worker writes rely on the primary post-rebuild scheduling path instead of worker-local Git debounces
 - session records include signed metadata, a backend-generated `sessionId`, and an absolute expiry timestamp
 - session revocation deletes the stored session entry and publishes the changed logical auth path through the shared mutation-commit flow

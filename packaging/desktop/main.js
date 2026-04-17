@@ -5,7 +5,7 @@ const path = require("node:path");
 const { Readable, Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
 const { pathToFileURL } = require("node:url");
-const { app, BrowserWindow, ipcMain, net, webFrameMain } = require("electron");
+const { app, BrowserWindow, WebContentsView, ipcMain, net, webFrameMain } = require("electron");
 const {
   resolveDesktopAuthDataDir,
   resolveDesktopServerTmpDir,
@@ -25,6 +25,25 @@ const {
   stageDesktopDebugRelease
 } = require("./updater_debug_release");
 
+const DESKTOP_BROWSER_PRELOAD_PATH = path.join(__dirname, "browser-preload.js");
+const DESKTOP_BROWSER_WEBVIEW_PARTITION_PREFIX = "space-browser-";
+const DESKTOP_BROWSER_WEBVIEW_PRELOAD_PATH = path.join(__dirname, "browser-webview-preload.js");
+const BROWSER_FRAME_BRIDGE_CHANNEL = "space.web_browsing.browser_frame";
+const BROWSER_FRAME_BRIDGE_EVENT_PHASE = "event";
+const BROWSER_FRAME_NAVIGATION_STATE_TYPE = "navigation_state";
+const DESKTOP_BROWSER_CREATE_CHANNEL = "space-desktop:browser-view-create";
+const DESKTOP_BROWSER_DESTROY_CHANNEL = "space-desktop:browser-view-destroy";
+const DESKTOP_BROWSER_ENVELOPE_FROM_MAIN_CHANNEL = "space-desktop:browser-envelope-to-renderer";
+const DESKTOP_BROWSER_ENVELOPE_FROM_RENDERER_CHANNEL = "space-desktop:browser-envelope-from-renderer";
+const DESKTOP_BROWSER_ENVELOPE_FROM_VIEW_CHANNEL = "space-desktop:browser-envelope-from-view";
+const DESKTOP_BROWSER_ENVELOPE_TO_VIEW_CHANNEL = "space-desktop:browser-envelope-to-view";
+const DESKTOP_BROWSER_FOCUS_CHANNEL = "space-desktop:browser-view-focus";
+const DESKTOP_BROWSER_FORWARD_CHANNEL = "space-desktop:browser-view-forward";
+const DESKTOP_BROWSER_GO_BACK_CHANNEL = "space-desktop:browser-view-back";
+const DESKTOP_BROWSER_HOST_EVENT_CHANNEL = "space-desktop:browser-host-event";
+const DESKTOP_BROWSER_NAVIGATE_CHANNEL = "space-desktop:browser-view-navigate";
+const DESKTOP_BROWSER_RELOAD_CHANNEL = "space-desktop:browser-view-reload";
+const DESKTOP_BROWSER_UPDATE_CHANNEL = "space-desktop:browser-view-update";
 const DESKTOP_FRAME_PRELOAD_PATH = path.join(__dirname, "frame-preload.js");
 const DESKTOP_FRAME_INJECT_REGISTER_CHANNEL = "space-desktop:frame-inject-register";
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
@@ -49,6 +68,11 @@ let desktopUpdateCheckPromise = null;
 let desktopUpdateDownloadPromise = null;
 let desktopFramePreloadRegistrationId = "";
 const desktopFrameInjectionRegistry = new Map();
+const desktopBrowserViews = new Map();
+const desktopBrowserViewsByWebContentsId = new Map();
+const desktopBrowserNavigationStateTimers = new Map();
+const desktopBrowserRaiseTimers = new Map();
+let desktopBrowserFrontmostId = "";
 let desktopUpdateState = {
   state: "idle",
   message: "",
@@ -209,13 +233,14 @@ async function fetchDesktopFrameInjectScript(currentSession, baseOrigin, injectP
 
 function buildDesktopFrameInjectionSource(entry, script) {
   const bootstrap = JSON.stringify({
+    browserId: entry.browserId || entry.iframeId || "",
     iframeId: entry.iframeId,
     scriptPath: script.scriptPath,
     scriptUrl: script.scriptUrl
   });
   const sourceUrl = String(script.scriptUrl || script.scriptPath || "space-desktop-injected-script").replace(/[\r\n]+/gu, " ");
 
-  return `(() => {\n  globalThis.__spaceBrowserFrameInjectBootstrap__ = ${bootstrap};\n  try {\n${script.scriptSource}\n  } finally {\n    delete globalThis.__spaceBrowserFrameInjectBootstrap__;\n  }\n})();\n//# sourceURL=${sourceUrl}`;
+  return `(() => {\n  const bootstrap = ${bootstrap};\n  globalThis.__spaceBrowserInjectBootstrap__ = bootstrap;\n  globalThis.__spaceBrowserFrameInjectBootstrap__ = bootstrap;\n  try {\n${script.scriptSource}\n  } finally {\n    delete globalThis.__spaceBrowserInjectBootstrap__;\n    delete globalThis.__spaceBrowserFrameInjectBootstrap__;\n  }\n})();\n//# sourceURL=${sourceUrl}`;
 }
 
 async function injectDesktopFrameScript(frame, entry, webContents) {
@@ -270,6 +295,480 @@ function injectRegisteredDesktopFrames(webContents) {
 
     maybeInjectDesktopFrame(frame, webContents);
   });
+}
+
+function normalizeDesktopBrowserId(value) {
+  return String(value || "").trim();
+}
+
+function getDesktopBrowserIdFromWebviewPartition(partition) {
+  const normalizedPartition = String(partition || "").trim();
+  if (!normalizedPartition.startsWith(DESKTOP_BROWSER_WEBVIEW_PARTITION_PREFIX)) {
+    return "";
+  }
+
+  return normalizeDesktopBrowserId(
+    normalizedPartition.slice(DESKTOP_BROWSER_WEBVIEW_PARTITION_PREFIX.length)
+  );
+}
+
+function normalizeDesktopBrowserBounds(bounds = {}) {
+  return {
+    height: Math.max(0, Math.round(Number(bounds.height) || 0)),
+    width: Math.max(0, Math.round(Number(bounds.width) || 0)),
+    x: Math.round(Number(bounds.x) || 0),
+    y: Math.round(Number(bounds.y) || 0)
+  };
+}
+
+function getDesktopBrowserViewEntry(browserId) {
+  return desktopBrowserViews.get(normalizeDesktopBrowserId(browserId)) || null;
+}
+
+function getDesktopBrowserViewEntryByWebContents(webContentsId) {
+  return desktopBrowserViewsByWebContentsId.get(Number(webContentsId)) || null;
+}
+
+function isDesktopBrowserViewFrontmost(browserId) {
+  const normalizedBrowserId = normalizeDesktopBrowserId(browserId);
+  return Boolean(normalizedBrowserId) && desktopBrowserFrontmostId === normalizedBrowserId;
+}
+
+function clearDesktopBrowserRaiseTimer(browserId) {
+  const normalizedBrowserId = normalizeDesktopBrowserId(browserId);
+  const timer = desktopBrowserRaiseTimers.get(normalizedBrowserId);
+  if (timer == null) {
+    return;
+  }
+
+  clearTimeout(timer);
+  desktopBrowserRaiseTimers.delete(normalizedBrowserId);
+}
+
+function clearDesktopBrowserNavigationStateTimer(browserId) {
+  const normalizedBrowserId = normalizeDesktopBrowserId(browserId);
+  const pending = desktopBrowserNavigationStateTimers.get(normalizedBrowserId);
+  if (!pending) {
+    return;
+  }
+
+  clearTimeout(pending.timer);
+  desktopBrowserNavigationStateTimers.delete(normalizedBrowserId);
+}
+
+function sendDesktopBrowserEnvelopeToRenderer(browserId, envelope) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send(DESKTOP_BROWSER_ENVELOPE_FROM_MAIN_CHANNEL, {
+    browserId: normalizeDesktopBrowserId(browserId),
+    envelope
+  });
+}
+
+function collectDesktopBrowserNavigationState(entry, overrides = {}) {
+  const webContents = entry?.view?.webContents;
+  const rawUrl = typeof overrides.url === "string" && overrides.url.trim()
+    ? overrides.url
+    : webContents?.getURL?.() || entry?.pendingUrl || "";
+  const rawTitle = typeof overrides.title === "string"
+    ? overrides.title
+    : webContents?.getTitle?.() || "";
+
+  return {
+    canGoBack: Boolean(webContents?.canGoBack?.()),
+    canGoForward: Boolean(webContents?.canGoForward?.()),
+    title: String(rawTitle || ""),
+    url: String(rawUrl || "")
+  };
+}
+
+function sendDesktopBrowserNavigationState(entry, overrides = {}) {
+  if (!entry) {
+    return;
+  }
+
+  sendDesktopBrowserEnvelopeToRenderer(entry.browserId, {
+    channel: BROWSER_FRAME_BRIDGE_CHANNEL,
+    payload: collectDesktopBrowserNavigationState(entry, overrides),
+    phase: BROWSER_FRAME_BRIDGE_EVENT_PHASE,
+    type: BROWSER_FRAME_NAVIGATION_STATE_TYPE
+  });
+}
+
+function scheduleDesktopBrowserNavigationState(browserId, overrides = {}) {
+  const normalizedBrowserId = normalizeDesktopBrowserId(browserId);
+  if (!normalizedBrowserId) {
+    return;
+  }
+
+  const pending = desktopBrowserNavigationStateTimers.get(normalizedBrowserId);
+  const nextOverrides = {
+    ...(pending?.overrides || {}),
+    ...overrides
+  };
+
+  if (pending) {
+    clearTimeout(pending.timer);
+  }
+
+  const timer = setTimeout(() => {
+    desktopBrowserNavigationStateTimers.delete(normalizedBrowserId);
+
+    const entry = getDesktopBrowserViewEntry(normalizedBrowserId);
+    if (!entry || entry.view.webContents.isDestroyed()) {
+      return;
+    }
+
+    sendDesktopBrowserNavigationState(entry, nextOverrides);
+  }, 0);
+
+  desktopBrowserNavigationStateTimers.set(normalizedBrowserId, {
+    overrides: nextOverrides,
+    timer
+  });
+}
+
+function sendDesktopBrowserHostEvent(browserId, type, payload = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send(DESKTOP_BROWSER_HOST_EVENT_CHANNEL, {
+    browserId: normalizeDesktopBrowserId(browserId),
+    disposition: String(payload.disposition || "").trim(),
+    frameName: String(payload.frameName || "").trim(),
+    referrerUrl: String(payload.referrerUrl || "").trim(),
+    type: String(type || "").trim(),
+    url: String(payload.url || "").trim()
+  });
+}
+
+function getDesktopBrowserInjectBaseOrigin() {
+  try {
+    return new URL(mainWindow?.webContents?.getURL?.() || serverRuntime?.browserUrl || "").origin;
+  } catch {
+    try {
+      return new URL(serverRuntime?.browserUrl || "").origin;
+    } catch {
+      return "";
+    }
+  }
+}
+
+async function injectDesktopBrowserViewScript(entry) {
+  if (!entry || entry.view?.webContents?.isDestroyed?.()) {
+    return;
+  }
+
+  const currentSession = entry.view.webContents.session;
+  if (!currentSession || typeof currentSession.fetch !== "function") {
+    throw new Error("Desktop browser view injection requires a live renderer session.");
+  }
+
+  const baseOrigin = getDesktopBrowserInjectBaseOrigin();
+  const script = await fetchDesktopFrameInjectScript(currentSession, baseOrigin, entry.injectPath);
+  const bootstrap = {
+    browserId: entry.browserId,
+    iframeId: entry.browserId,
+    scriptPath: script.scriptPath,
+    scriptUrl: script.scriptUrl
+  };
+  const sourceUrl = String(script.scriptUrl || script.scriptPath || "space-desktop-browser-injected-script").replace(/[\r\n]+/gu, " ");
+  const source = `(() => {\n  const bootstrap = ${JSON.stringify(bootstrap)};\n  globalThis.__spaceBrowserInjectBootstrap__ = bootstrap;\n  globalThis.__spaceBrowserFrameInjectBootstrap__ = bootstrap;\n  try {\n${script.scriptSource}\n  } finally {\n    delete globalThis.__spaceBrowserInjectBootstrap__;\n    delete globalThis.__spaceBrowserFrameInjectBootstrap__;\n  }\n})();\n//# sourceURL=${sourceUrl}`;
+
+  await entry.view.webContents.executeJavaScript(source, true);
+}
+
+function applyDesktopBrowserViewVisibility(entry) {
+  if (!entry?.view || entry.view.webContents.isDestroyed?.()) {
+    return;
+  }
+
+  const isVisible = entry.visible !== false && entry.bounds.width > 0 && entry.bounds.height > 0;
+  if (typeof entry.view.setVisible === "function") {
+    entry.view.setVisible(isVisible);
+  }
+
+  entry.view.setBounds(isVisible
+    ? entry.bounds
+    : {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0
+      });
+}
+
+function raiseDesktopBrowserView(browserId) {
+  const entry = getDesktopBrowserViewEntry(browserId);
+  if (!entry || !mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+
+  clearDesktopBrowserRaiseTimer(entry.browserId);
+
+  if (isDesktopBrowserViewFrontmost(entry.browserId)) {
+    applyDesktopBrowserViewVisibility(entry);
+    return entry;
+  }
+
+  try {
+    mainWindow.contentView.removeChildView(entry.view);
+  } catch {
+    // Reordering is best effort only.
+  }
+
+  try {
+    mainWindow.contentView.addChildView(entry.view);
+  } catch {
+    // The view may already be attached or the window may be closing.
+  }
+
+  desktopBrowserFrontmostId = entry.browserId;
+  applyDesktopBrowserViewVisibility(entry);
+
+  return entry;
+}
+
+function scheduleRaiseDesktopBrowserView(browserId) {
+  const normalizedBrowserId = normalizeDesktopBrowserId(browserId);
+  if (!normalizedBrowserId || desktopBrowserRaiseTimers.has(normalizedBrowserId)) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    desktopBrowserRaiseTimers.delete(normalizedBrowserId);
+    raiseDesktopBrowserView(normalizedBrowserId);
+  }, 0);
+
+  desktopBrowserRaiseTimers.set(normalizedBrowserId, timer);
+}
+
+function focusDesktopBrowserView(browserId, { notifyRenderer = false, refocus = true } = {}) {
+  const entry = raiseDesktopBrowserView(browserId);
+  if (!entry) {
+    return;
+  }
+
+  if (refocus) {
+    entry.view.webContents.focus();
+  }
+
+  if (notifyRenderer) {
+    sendDesktopBrowserHostEvent(entry.browserId, "focus");
+  }
+}
+
+function createDesktopBrowserView(payload = {}) {
+  const browserId = normalizeDesktopBrowserId(payload.browserId);
+  const injectPath = String(payload.injectPath || "").trim();
+  if (!browserId || !mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+
+  const existingEntry = getDesktopBrowserViewEntry(browserId);
+  if (existingEntry) {
+    if (injectPath) {
+      existingEntry.injectPath = injectPath;
+    }
+
+    if (payload.url) {
+      existingEntry.pendingUrl = String(payload.url || "").trim();
+      void existingEntry.view.webContents.loadURL(existingEntry.pendingUrl).catch((error) => {
+        console.error(`[space-desktop/browser-view] Failed to load ${existingEntry.pendingUrl} for "${browserId}".`, error);
+      });
+    }
+
+    return existingEntry;
+  }
+
+  const view = new WebContentsView({
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: DESKTOP_BROWSER_PRELOAD_PATH
+    }
+  });
+
+  const entry = {
+    bounds: normalizeDesktopBrowserBounds(payload.bounds),
+    browserId,
+    injectPath,
+    pendingUrl: String(payload.url || "").trim(),
+    view,
+    visible: payload.visible !== false
+  };
+
+  desktopBrowserViews.set(browserId, entry);
+  desktopBrowserViewsByWebContentsId.set(view.webContents.id, entry);
+  mainWindow.contentView.addChildView(view);
+  desktopBrowserFrontmostId = browserId;
+  applyDesktopBrowserViewVisibility(entry);
+
+  view.webContents.on("destroyed", () => {
+    clearDesktopBrowserNavigationStateTimer(browserId);
+    clearDesktopBrowserRaiseTimer(browserId);
+    desktopBrowserViewsByWebContentsId.delete(view.webContents.id);
+    if (desktopBrowserViews.get(browserId) === entry) {
+      desktopBrowserViews.delete(browserId);
+    }
+    if (desktopBrowserFrontmostId === browserId) {
+      desktopBrowserFrontmostId = "";
+    }
+  });
+
+  view.webContents.on("did-navigate", (_event, url) => {
+    entry.pendingUrl = String(url || "").trim();
+    scheduleDesktopBrowserNavigationState(browserId, {
+      url: entry.pendingUrl
+    });
+  });
+
+  view.webContents.on("did-navigate-in-page", (_event, url, isMainFrame = true) => {
+    if (isMainFrame === false) {
+      return;
+    }
+
+    entry.pendingUrl = String(url || "").trim();
+    scheduleDesktopBrowserNavigationState(browserId, {
+      url: entry.pendingUrl
+    });
+  });
+
+  view.webContents.on("page-title-updated", (_event, title) => {
+    scheduleDesktopBrowserNavigationState(browserId, {
+      title: String(title || "")
+    });
+  });
+
+  view.webContents.setWindowOpenHandler((details) => {
+    sendDesktopBrowserHostEvent(browserId, "open_window", {
+      disposition: details?.disposition,
+      frameName: details?.frameName,
+      referrerUrl: details?.referrer?.url,
+      url: details?.url
+    });
+
+    return {
+      action: "deny"
+    };
+  });
+
+  view.webContents.on("focus", () => {
+    if (!isDesktopBrowserViewFrontmost(browserId)) {
+      scheduleRaiseDesktopBrowserView(browserId);
+    }
+
+    sendDesktopBrowserHostEvent(browserId, "focus");
+  });
+
+  view.webContents.on("did-finish-load", () => {
+    entry.pendingUrl = String(view.webContents.getURL() || entry.pendingUrl || "").trim();
+    scheduleDesktopBrowserNavigationState(browserId, {
+      url: entry.pendingUrl
+    });
+
+    if (!entry.injectPath) {
+      return;
+    }
+
+    void injectDesktopBrowserViewScript(entry).catch((error) => {
+      console.error(`[space-desktop/browser-view] Failed to inject ${entry.injectPath} into "${browserId}".`, error);
+    });
+  });
+
+  if (entry.pendingUrl) {
+    void view.webContents.loadURL(entry.pendingUrl).catch((error) => {
+      console.error(`[space-desktop/browser-view] Failed to load ${entry.pendingUrl} for "${browserId}".`, error);
+    });
+  }
+
+  return entry;
+}
+
+function updateDesktopBrowserView(payload = {}) {
+  const entry = getDesktopBrowserViewEntry(payload.browserId) || createDesktopBrowserView(payload);
+  if (!entry) {
+    return null;
+  }
+
+  entry.bounds = normalizeDesktopBrowserBounds(payload.bounds);
+  entry.visible = payload.visible !== false;
+  applyDesktopBrowserViewVisibility(entry);
+  return entry;
+}
+
+function destroyDesktopBrowserView(browserId) {
+  const entry = getDesktopBrowserViewEntry(browserId);
+  if (!entry) {
+    return;
+  }
+
+  clearDesktopBrowserNavigationStateTimer(entry.browserId);
+  clearDesktopBrowserRaiseTimer(entry.browserId);
+  desktopBrowserViews.delete(entry.browserId);
+  desktopBrowserViewsByWebContentsId.delete(entry.view.webContents.id);
+  if (desktopBrowserFrontmostId === entry.browserId) {
+    desktopBrowserFrontmostId = "";
+  }
+
+  try {
+    mainWindow?.contentView?.removeChildView?.(entry.view);
+  } catch {
+    // The main window may already be closing.
+  }
+
+  if (!entry.view.webContents.isDestroyed()) {
+    entry.view.webContents.close();
+  }
+}
+
+function destroyAllDesktopBrowserViews() {
+  [...desktopBrowserViews.keys()].forEach((browserId) => {
+    destroyDesktopBrowserView(browserId);
+  });
+}
+
+function navigateDesktopBrowserView(browserId, url) {
+  const entry = getDesktopBrowserViewEntry(browserId);
+  const nextUrl = String(url || "").trim();
+  if (!entry || !nextUrl) {
+    return;
+  }
+
+  entry.pendingUrl = nextUrl;
+  void entry.view.webContents.loadURL(nextUrl).catch((error) => {
+    console.error(`[space-desktop/browser-view] Failed to navigate "${browserId}" to ${nextUrl}.`, error);
+  });
+}
+
+function goBackDesktopBrowserView(browserId) {
+  const entry = getDesktopBrowserViewEntry(browserId);
+  if (!entry || !entry.view.webContents.canGoBack()) {
+    return;
+  }
+
+  entry.view.webContents.goBack();
+}
+
+function goForwardDesktopBrowserView(browserId) {
+  const entry = getDesktopBrowserViewEntry(browserId);
+  if (!entry || !entry.view.webContents.canGoForward()) {
+    return;
+  }
+
+  entry.view.webContents.goForward();
+}
+
+function reloadDesktopBrowserView(browserId) {
+  const entry = getDesktopBrowserViewEntry(browserId);
+  if (!entry) {
+    return;
+  }
+
+  entry.view.webContents.reload();
 }
 
 function createDesktopRuntimeParamOverrides() {
@@ -1306,7 +1805,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webviewTag: true
     }
   });
 
@@ -1328,6 +1828,21 @@ function createWindow() {
 
     maybeInjectDesktopFrame(frame, mainWindow?.webContents);
   });
+  mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    const browserId = getDesktopBrowserIdFromWebviewPartition(params?.partition);
+    if (!browserId) {
+      return;
+    }
+
+    webPreferences.preload = DESKTOP_BROWSER_WEBVIEW_PRELOAD_PATH;
+    webPreferences.contextIsolation = true;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.additionalArguments = [
+      ...(Array.isArray(webPreferences.additionalArguments) ? webPreferences.additionalArguments : []),
+      `--space-browser-id=${browserId}`
+    ];
+  });
 
   desktopPageTitle = BASE_WINDOW_TITLE;
   refreshDesktopWindowTitle();
@@ -1341,6 +1856,7 @@ function createWindow() {
   });
 
   mainWindow.on("closed", () => {
+    destroyAllDesktopBrowserViews();
     mainWindow = null;
     desktopPageTitle = BASE_WINDOW_TITLE;
   });
@@ -1356,6 +1872,11 @@ function createWindow() {
     refreshDesktopWindowTitle();
     flushDesktopRendererLogs();
     mainWindow.webContents.send("space-desktop:update-status", desktopUpdateState);
+  });
+  mainWindow.webContents.on("did-start-navigation", (_event, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame) {
+      destroyAllDesktopBrowserViews();
+    }
   });
 
   mainWindow.loadURL(`${serverRuntime.browserUrl}${resolveDesktopLaunchPath()}`);
@@ -1433,6 +1954,48 @@ app.on("window-all-closed", () => {
 });
 
 ipcMain.handle("space-desktop:get-runtime-info", () => getDesktopRuntimeInfo());
+ipcMain.on(DESKTOP_BROWSER_CREATE_CHANNEL, (_event, payload = {}) => {
+  createDesktopBrowserView(payload);
+});
+ipcMain.on(DESKTOP_BROWSER_UPDATE_CHANNEL, (_event, payload = {}) => {
+  updateDesktopBrowserView(payload);
+});
+ipcMain.on(DESKTOP_BROWSER_DESTROY_CHANNEL, (_event, payload = {}) => {
+  destroyDesktopBrowserView(payload.browserId);
+});
+ipcMain.on(DESKTOP_BROWSER_FOCUS_CHANNEL, (_event, payload = {}) => {
+  focusDesktopBrowserView(payload.browserId);
+});
+ipcMain.on(DESKTOP_BROWSER_NAVIGATE_CHANNEL, (_event, payload = {}) => {
+  navigateDesktopBrowserView(payload.browserId, payload.url);
+});
+ipcMain.on(DESKTOP_BROWSER_GO_BACK_CHANNEL, (_event, payload = {}) => {
+  goBackDesktopBrowserView(payload.browserId);
+});
+ipcMain.on(DESKTOP_BROWSER_FORWARD_CHANNEL, (_event, payload = {}) => {
+  goForwardDesktopBrowserView(payload.browserId);
+});
+ipcMain.on(DESKTOP_BROWSER_RELOAD_CHANNEL, (_event, payload = {}) => {
+  reloadDesktopBrowserView(payload.browserId);
+});
+ipcMain.on(DESKTOP_BROWSER_ENVELOPE_FROM_RENDERER_CHANNEL, (_event, payload = {}) => {
+  const entry = getDesktopBrowserViewEntry(payload.browserId);
+  if (!entry || entry.view.webContents.isDestroyed()) {
+    return;
+  }
+
+  entry.view.webContents.send(DESKTOP_BROWSER_ENVELOPE_TO_VIEW_CHANNEL, {
+    envelope: payload.envelope
+  });
+});
+ipcMain.on(DESKTOP_BROWSER_ENVELOPE_FROM_VIEW_CHANNEL, (event, payload = {}) => {
+  const entry = getDesktopBrowserViewEntryByWebContents(event.sender.id);
+  if (!entry) {
+    return;
+  }
+
+  sendDesktopBrowserEnvelopeToRenderer(entry.browserId, payload.envelope);
+});
 ipcMain.on(DESKTOP_FRAME_INJECT_REGISTER_CHANNEL, (event, payload = {}) => {
   replaceDesktopFrameInjectionRegistry(event.sender.id, payload.frames);
   injectRegisteredDesktopFrames(event.sender);

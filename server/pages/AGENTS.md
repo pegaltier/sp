@@ -17,6 +17,13 @@ Current page shells:
 - `login.html`: public password-login shell for `/login`
 - `enter.html`: firmware-backed launcher shell served at `/enter` for launcher-eligible sessions
 
+Current root discovery files:
+
+- `robots.txt`: public crawler guidance for the live site, disallowing protected or technical routes and advertising the sitemap location
+- `llms.txt`: concise README-derived markdown summary plus curated links for LLM-oriented tooling
+- `llms-full.txt`: expanded markdown project description for LLM-oriented tooling
+- `sitemap.xml`: public sitemap of the small set of intended indexable entry URLs
+
 Current public shell assets:
 
 - `res/space-backdrop.css`
@@ -24,6 +31,7 @@ Current public shell assets:
 - `res/browser-compat.js`
 - `res/enter-guard.js`
 - `res/user-crypto.js`
+- `res/readme-banner.webp` as the shared social-preview image for page-shell Open Graph and Twitter cards
 - login-shell image assets under `res/`
 - login-shell social-link SVG assets under `res/`
 - shared transparent helmet favicon assets and `res/site.webmanifest`
@@ -35,6 +43,7 @@ Current public shell assets:
 - loads shared framework CSS and `/mod/_core/framework/js/initFw.js`
 - when the current request already has launcher access, receives a page-shell guard before `/mod/...` assets so a new browser-opened tab or window is redirected to `/enter?next=<current-url>` before customware loads; framework-created same-origin `_blank` opens may pre-grant the same tab-access marker before loading this shell
 - receives injected `meta[name="space-config"]` tags for any `frontend_exposed` runtime parameters
+- declares the shared product-level social-preview metadata for Open Graph and Twitter, using the production card title `Space Agent | Browser-First AI Agent Runtime`, the shared browser-first runtime description, and the local `server/pages/res/readme-banner.webp` asset published at `https://space-agent.ai/pages/res/readme-banner.webp`
 - declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and app manifest metadata
 - keeps the body minimal and exposes exactly the `body/start` extension anchor
 
@@ -44,6 +53,7 @@ Current public shell assets:
 - when the current request already has launcher access, receives the same page-shell guard before `/mod/...` assets so a new browser-opened tab or window is redirected to `/enter?next=<current-url>` before admin shell assets load; framework-created same-origin `_blank` opens may pre-grant the same tab-access marker before loading this shell
 - declares `meta[name="space-max-layer"]` with content `0`
 - receives the same injected `meta[name="space-config"]` tags for `frontend_exposed` runtime parameters
+- declares that same shared product-level Open Graph and Twitter social-preview card so admin-route shares keep the same public Space Agent banner and description
 - declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Admin Mode | Space Agent` document title
 - keeps the body minimal and exposes exactly the `page/admin/body/start` extension anchor
 
@@ -51,12 +61,13 @@ Current public shell assets:
 
 - is public and must not depend on authenticated `/mod/...` assets
 - owns the login flow, guest creation flow, and pre-auth layout
+- declares the same shared product-level Open Graph and Twitter social-preview card as the other shells, so anonymous shares of `https://space-agent.ai/` still resolve to a Space Agent product preview after the server redirects crawlers to `/login`
 - renders a centered footer below the main shell content with white semi-transparent outbound icons for GitHub, Discord, X, and a slightly larger Agent Zero logo in the last slot, then places the injected `SPACE_PROJECT_VERSION` value beneath that icon row
 - reads injected `meta[name="space-config"]` tags directly so guest-login UI can follow backend runtime parameters without authenticated module imports
 - declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Login | Space Agent` document title
 - runs the shared public-shell browser compatibility gate from `server/pages/res/browser-compat.js` before login logic starts, and renders a visible blocking message when the browser is missing required runtime features such as modern JavaScript syntax, module loading, fetch, storage, text codecs, or Web Crypto
 - runs the per-user `userCrypto` provisioning or unlock step inside the same `/api/login_challenge` plus `/api/login` transaction using the public helper in `server/pages/res/user-crypto.js`; the helper must stay public because `/login` cannot depend on authenticated `/mod/...` assets
-- stores the unlocked `userCrypto` session cache in `sessionStorage` only, keyed by username plus backend `sessionId`, so decrypted key material stays scoped to the current browser session
+- stores the unlocked `userCrypto` session cache in `sessionStorage`, keyed by username plus backend `sessionId`, and may also store one encrypted origin-scoped `localStorage` blob under `space.userCrypto.local`; the shell must fetch the current session-derived wrapping key from `/api/user_crypto_session_key` before writing that blob, and must never store that wrapping key at rest
 - when login starts from a `userCrypto: missing` challenge, it also stores a session-scoped bootstrap secret derived from the successful password login so the first authenticated app load can finish provisioning through `/api/user_crypto_bootstrap` if the login-side provisioning write did not stick before redirect
 - if that first authenticated recovery pass still leaves `userCrypto` missing, the authenticated bootstrap should sign the browser out instead of leaving the app running in a half-working state
 - if login completes without a usable `userCrypto` record, the shell must fail sign-in in place instead of redirecting into an authenticated-page logout loop
@@ -75,7 +86,8 @@ Current public shell assets:
 - must stay safe even when routed customware is broken
 - must not depend on authenticated `/mod/...` assets
 - is served for launcher-eligible sessions; in multi-user mode, unauthenticated requests are redirected to `/login` before this shell loads
-- owns the firmware-backed launcher UI that links to `/` and `/admin`, labeled as Enter Space and Admin Mode, and when the Electron preload bridge reports a packaged desktop runtime with updater support it also runs a fresh background update check on each shell load unless an install is already downloading or ready to restart, reveals an update button below `Admin Mode` only after a newer bundle is available or ready to install, keeps normal update status inside that button label with no second text line underneath, uses the downloaded-state label `Restart and update`, fades the launcher shell to black before it hands restart-to-install back to Electron, stays visually quiet when the bundled app is already current, collapses update-check failures behind a `Could not check updates` disclosure that expands into left-aligned raw details, and renders the update button version with a `v` prefix while still collapsing redundant updater versions such as `0.44.0` to the two-segment display form `v0.44`
+- owns the firmware-backed launcher UI that links to `/` and `/admin`, labeled as Enter Space and Admin Mode, and when the Electron preload bridge reports a packaged desktop runtime with updater support it also runs a fresh background update check on each shell load unless an install is already downloading or ready to restart, reveals an update button below `Admin Mode` only after a newer bundle is available or ready to install, keeps all normal update status inside that button label with no second text line or subtitle underneath, uses the downloaded-state label `Restart and update`, opens a login-styled confirmation modal before restart-to-install with `Okay, restart` and `Back` actions plus copy explaining that the bundled app will quit and update in the background, fades the launcher shell to black only after the user confirms that modal, stays visually quiet when the bundled app is already current, and only replaces the button with a `Could not check updates` disclosure when the update check or download fails, rendering the update button version with a `v` prefix while still collapsing redundant updater versions such as `0.44.0` to the two-segment display form `v0.44`
+- declares that same shared product-level Open Graph and Twitter social-preview card so launcher-route shares use the same public Space Agent banner and description
 - declares the shared Space Agent transparent-helmet favicon set, including ICO fallback, PNG browser and install icons, Apple touch icon, and the `Enter Space | Space Agent` document title
 - runs the shared public-shell browser compatibility gate from `server/pages/res/browser-compat.js` before launcher logic starts, and renders the same blocking message contract as `/login` when the browser is missing required runtime features for the later app shell
 - renders the same centered footer treatment as `/login`: white semi-transparent outbound icons for GitHub, Discord, X, and a slightly larger Agent Zero logo in the last slot, followed by the injected `SPACE_PROJECT_VERSION` value beneath that icon row
@@ -84,6 +96,17 @@ Current public shell assets:
 - keeps the footer social links as navigation-only outbound targets to the Space Agent repository, Discord community, Agent Zero website, and X account
 - keeps extra small-screen side spacing around the launcher shell and a generous top and inter-button gap when the launcher actions collapse below the intro copy
 - should reuse the mirrored public backdrop assets instead of introducing a second standalone visual system
+
+## Root Discovery File Contracts
+
+- `robots.txt` must stay public, static, and conservative: keep public entry pages crawlable while disallowing protected or technical routes such as `/admin`, `/api/`, `/mod/`, and direct app-file paths
+- `robots.txt` may advertise the local `sitemap.xml` and mention `llms.txt` files in comments, but should not invent unsupported crawler directives
+- `llms.txt` must follow the root-path markdown convention from `llmstxt.org`: H1 title, short blockquote summary, optional explanatory prose, then H2 sections with link lists
+- `llms.txt` and `llms-full.txt` should describe the project using the public README plus stable architecture contracts, not ad hoc marketing copy that drifts away from the repo
+- `llms.txt` should stay concise and link outward to the local `llms-full.txt`, the GitHub README, the repo-wide `AGENTS.md`, and other stable public references
+- `llms-full.txt` should give a fuller project description, runtime model, key commands, and important links without depending on authenticated pages or `/mod/...` assets
+- both LLM-oriented files should point only at public URLs or raw public markdown sources, never at authenticated app surfaces
+- `sitemap.xml` should list only public URLs that are reasonable to index without authentication; do not include `/admin`, `/api/...`, `/mod/...`, direct app-file paths, or other technical endpoints
 
 ## Public Asset Mirroring
 
@@ -95,6 +118,8 @@ Rules:
 - keep both the mirrored base canvas gradient and the mirrored star or glow scene fixed to the viewport so public-shell scrolling never drags them
 - if the shared backdrop visuals or runtime behavior change, review and update these mirrored files in the same session
 - keep public-shell assets under `server/pages/res/` instead of embedding large data blobs into page HTML
+- keep crawler and LLM discovery files at the root `server/pages/` level so they can be aliased directly to `/<filename>` without going through authenticated page routes
+- keep the shared social-preview banner in `server/pages/res/` so page-shell Open Graph and Twitter metadata never depend on `.github/` paths or external asset hosts
 - keep the shared favicon asset family in `server/pages/res/`, derive it from the onscreen-agent assistant helmet avatar, keep the background transparent, and scale the helmet to fill the available icon space without reintroducing a badge or circular plate
 - keep the manifest icon entries as standard install icons rather than `maskable` assets unless the icon family is intentionally redesigned for adaptive-icon safe zones
 - server page shells must not load remote runtime resources; scripts, styles, fonts, images, icons, and recovery visuals must be local files or inline SVG/CSS so `/login`, `/enter`, `/`, and `/admin` can load without internet access

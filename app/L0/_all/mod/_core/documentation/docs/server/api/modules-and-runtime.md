@@ -58,6 +58,7 @@ Important runtime endpoints:
 - `password_generate`
 - `password_change`
 - `user_crypto_bootstrap`
+- `user_crypto_session_key`
 - `user_self_info`
 
 `extensions_load`:
@@ -95,7 +96,7 @@ Important runtime endpoints:
 
 - is authenticated and applies only to the current user
 - validates the current password through the auth service before generating the replacement sealed verifier
-- rewrites `meta/password.json`, rewraps `meta/user_crypto.json` when the current account has ready browser crypto, clears stored sessions, and clears the current browser cookie so the frontend can return to `/login`
+- rewrites `meta/password.json`, rewraps `meta/user_crypto.json` when the current account has ready browser crypto, clears stored sessions, and clears the current browser auth cookie so the frontend can return to `/login`
 
 `user_crypto_bootstrap`:
 
@@ -103,6 +104,13 @@ Important runtime endpoints:
 - returns the current `userCrypto` state
 - when the state is `missing`, it can return a provisioning share for that authenticated session and later accept the wrapped record generated in the browser
 - exists so the first authenticated app load can self-heal a missing `userCrypto` record instead of requiring a second login
+
+`user_crypto_session_key`:
+
+- is an authenticated restore endpoint for the current browser session
+- returns the session-derived wrapping key created by hashing the live backend `sessionId` with the server-held session secret
+- lets `_core/user_crypto` restore the unlocked browser key from the encrypted `localStorage` blob without storing that wrapping key at rest
+- does not persist per-session restore grants or any backend copy of the user master key
 
 ## Health Helper
 

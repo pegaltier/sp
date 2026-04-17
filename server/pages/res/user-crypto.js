@@ -9,6 +9,7 @@ export const USER_CRYPTO_STATUS_INVALIDATED = "invalidated";
 export const USER_CRYPTO_STATUS_MISSING = "missing";
 export const USER_CRYPTO_STATUS_READY = "ready";
 export const USER_CRYPTO_LOGIN_BOOTSTRAP_PREFIX = "space.userCrypto.loginBootstrap.";
+export const USER_CRYPTO_LOCAL_STORAGE_KEY = "space.userCrypto.local";
 export const USER_CRYPTO_SESSION_CACHE_PREFIX = "space.userCrypto.session.";
 export const USER_CRYPTO_STRING_PREFIX = "userCrypto:";
 
@@ -376,6 +377,130 @@ export function createUserCryptoLoginBootstrapEntry({
     username: normalizedEntry.username,
     version: normalizedEntry.version
   };
+}
+
+export function normalizeUserCryptoLocalStorageEntry(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return null;
+  }
+
+  const ciphertext = normalizeBase64Url(entry.ciphertext || entry.c);
+  const iv = normalizeBase64Url(entry.iv || entry.i);
+  const keyId = normalizeKeyId(entry.keyId || entry.key_id);
+  const sessionId = normalizeSessionId(entry.sessionId || entry.session_id);
+  const storedAt = normalizeIsoDate(entry.storedAt || entry.stored_at);
+  const username = normalizeUsername(entry.username);
+  const version = Number(entry.version) || RECORD_VERSION;
+
+  if (!ciphertext || !iv || !keyId || !sessionId || !username) {
+    return null;
+  }
+
+  return {
+    ciphertext,
+    iv,
+    keyId,
+    sessionId,
+    storedAt,
+    username,
+    version
+  };
+}
+
+function buildLocalStorageAdditionalData(entry = {}) {
+  return TEXT_ENCODER.encode(
+    JSON.stringify({
+      keyId: String(entry.keyId || "").trim(),
+      prefix: "space-user-crypto-local-storage-v1",
+      sessionId: String(entry.sessionId || "").trim(),
+      username: String(entry.username || "").trim(),
+      version: Number(entry.version) || RECORD_VERSION
+    })
+  );
+}
+
+export async function createUserCryptoLocalStorageEntry({
+  cacheEntry,
+  sessionKey,
+  storedAt = new Date().toISOString()
+} = {}) {
+  const normalizedCacheEntry = normalizeUserCryptoSessionCacheEntry(cacheEntry);
+  const normalizedSessionKey = requireLength(
+    typeof sessionKey === "string" ? decodeBase64Url(sessionKey) : sessionKey,
+    MASTER_KEY_LENGTH,
+    "User crypto session storage key must be 32 bytes."
+  );
+
+  if (!normalizedCacheEntry) {
+    throw new Error("A valid user crypto session cache entry is required.");
+  }
+
+  const iv = randomBytes(AES_GCM_IV_LENGTH);
+  const ciphertext = await aesGcmEncrypt({
+    additionalData: buildLocalStorageAdditionalData(normalizedCacheEntry),
+    iv,
+    keyBytes: normalizedSessionKey,
+    plaintext: TEXT_ENCODER.encode(JSON.stringify(normalizedCacheEntry))
+  });
+  const normalizedEntry = normalizeUserCryptoLocalStorageEntry({
+    ciphertext: encodeBase64Url(ciphertext),
+    iv: encodeBase64Url(iv),
+    keyId: normalizedCacheEntry.keyId,
+    sessionId: normalizedCacheEntry.sessionId,
+    storedAt,
+    username: normalizedCacheEntry.username,
+    version: RECORD_VERSION
+  });
+
+  if (!normalizedEntry) {
+    throw new Error("Invalid user crypto local storage entry.");
+  }
+
+  return {
+    ciphertext: normalizedEntry.ciphertext,
+    iv: normalizedEntry.iv,
+    keyId: normalizedEntry.keyId,
+    sessionId: normalizedEntry.sessionId,
+    storedAt: normalizedEntry.storedAt,
+    username: normalizedEntry.username,
+    version: normalizedEntry.version
+  };
+}
+
+export async function openUserCryptoLocalStorageEntry({ sessionKey, value } = {}) {
+  const normalizedEntry = normalizeUserCryptoLocalStorageEntry(value);
+
+  if (!normalizedEntry) {
+    return null;
+  }
+
+  try {
+    const plaintext = await aesGcmDecrypt({
+      additionalData: buildLocalStorageAdditionalData(normalizedEntry),
+      ciphertext: decodeBase64Url(normalizedEntry.ciphertext),
+      iv: decodeBase64Url(normalizedEntry.iv),
+      keyBytes: requireLength(
+        typeof sessionKey === "string" ? decodeBase64Url(sessionKey) : sessionKey,
+        MASTER_KEY_LENGTH,
+        "User crypto session storage key must be 32 bytes."
+      )
+    });
+    const parsedEntry = JSON.parse(TEXT_DECODER.decode(plaintext));
+    const cacheEntry = normalizeUserCryptoSessionCacheEntry(parsedEntry);
+
+    if (
+      !cacheEntry ||
+      cacheEntry.keyId !== normalizedEntry.keyId ||
+      cacheEntry.sessionId !== normalizedEntry.sessionId ||
+      cacheEntry.username !== normalizedEntry.username
+    ) {
+      return null;
+    }
+
+    return cacheEntry;
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeUserCryptoRecord(record) {

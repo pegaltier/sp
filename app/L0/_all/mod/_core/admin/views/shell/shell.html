@@ -11,7 +11,7 @@
         <div
           class="admin-shell"
           x-cloak
-          x-init="$nextTick(() => { $store.adminShell.mount({ mainFrame: $refs.mainFrame }); $store.adminPage.mount({ tabBar: $refs.tabBar }); })"
+          x-init="$nextTick(() => { $store.adminShell.mount({ mainFrame: $refs.mainFrame }); $store.adminPage.mount({ tabBar: $refs.tabBar, topbar: $refs.topbar, topbarMeasure: $refs.topbarMeasure, topbarCompactMeasure: $refs.topbarCompactMeasure }); })"
           x-destroy="$store.adminPage.unmount(); $store.adminShell.unmount()"
           @pointermove.window="$store.adminShell.handlePointerMove($event)"
           @pointerup.window="$store.adminShell.stopDrag($event)"
@@ -21,9 +21,15 @@
           <aside class="pane admin-pane" aria-label="Admin panel">
             <main class="admin-pane-content">
               <div class="admin-page">
-                <header class="space-topbar admin-topbar" aria-label="Admin navigation">
+                <header
+                  class="space-topbar admin-topbar"
+                  :class="{ 'is-collapsed': $store.adminPage.tabsCollapsed, 'is-compact': $store.adminPage.tabsCompact }"
+                  x-ref="topbar"
+                  aria-label="Admin navigation"
+                  @keydown.escape.window="$store.adminPage.closeOverflowMenu()"
+                >
                   <div class="admin-tab-list" x-ref="tabBar" role="tablist" aria-label="Admin tabs">
-                    <template x-for="tab in $store.adminPage.tabs" :key="tab.id">
+                    <template x-for="tab in $store.adminPage.visibleTabs" :key="tab.id">
                       <button
                         :id="`admin-tab-${tab.id}`"
                         class="space-topbar-button admin-tab-button"
@@ -49,6 +55,57 @@
                       </button>
                     </template>
                   </div>
+
+                  <div
+                    class="space-topbar-menu admin-tab-overflow"
+                    x-cloak
+                    x-show="$store.adminPage.tabsCollapsed"
+                    @click.outside="$store.adminPage.closeOverflowMenu()"
+                  >
+                    <button
+                      type="button"
+                      class="space-topbar-button space-topbar-button--icon admin-overflow-button"
+                      :class="{ 'is-active': $store.adminPage.isOverflowMenuOpen }"
+                      aria-label="Open admin tabs"
+                      aria-haspopup="menu"
+                      aria-controls="admin-tabs-overflow-menu"
+                      :aria-expanded="String($store.adminPage.isOverflowMenuOpen)"
+                      @click="$store.adminPage.toggleOverflowMenu()"
+                    >
+                      <x-icon>menu</x-icon>
+                    </button>
+
+                    <div
+                      id="admin-tabs-overflow-menu"
+                      class="space-topbar-menu-panel admin-tab-overflow-panel"
+                      x-cloak
+                      x-show="$store.adminPage.isOverflowMenuOpen"
+                      x-transition.opacity.scale.origin.top.right.duration.160ms
+                      role="menu"
+                      aria-label="Admin tabs"
+                    >
+                      <template x-for="tab in $store.adminPage.tabs" :key="tab.id">
+                        <button
+                          type="button"
+                          class="space-topbar-menu-action admin-tab-menu-action"
+                          :class="{ 'is-active': $store.adminPage.isTabActive(tab.id) }"
+                          role="menuitemradio"
+                          :aria-checked="String($store.adminPage.isTabActive(tab.id))"
+                          @click="$store.adminPage.selectTabFromMenu(tab.id)"
+                        >
+                          <template x-if="tab.avatarPath">
+                            <img class="admin-tab-avatar admin-tab-menu-avatar" :src="tab.avatarPath" alt="" />
+                          </template>
+                          <template x-if="!tab.avatarPath">
+                            <x-icon x-text="tab.icon"></x-icon>
+                          </template>
+                          <span class="space-topbar-menu-action-label" x-text="tab.label"></span>
+                          <x-icon class="admin-tab-menu-check" x-show="$store.adminPage.isTabActive(tab.id)" x-cloak>check</x-icon>
+                        </button>
+                      </template>
+                    </div>
+                  </div>
+
                   <button
                     class="space-topbar-button space-topbar-button--icon admin-close-button"
                     type="button"
@@ -59,6 +116,63 @@
                     <x-icon>exit_to_app</x-icon>
                   </button>
                 </header>
+
+                <div class="admin-topbar-measure" aria-hidden="true">
+                  <div class="space-topbar admin-topbar admin-topbar--measure" x-ref="topbarMeasure">
+                    <div class="admin-tab-list" role="presentation">
+                      <template x-for="tab in $store.adminPage.tabs" :key="`measure-${tab.id}`">
+                        <button
+                          class="space-topbar-button admin-tab-button"
+                          :class="{ 'is-active': $store.adminPage.isTabActive(tab.id) }"
+                          type="button"
+                          tabindex="-1"
+                        >
+                          <template x-if="tab.avatarPath">
+                            <img class="admin-tab-avatar" :src="tab.avatarPath" alt="" />
+                          </template>
+                          <template x-if="!tab.avatarPath">
+                            <x-icon x-text="tab.icon"></x-icon>
+                          </template>
+                          <span class="admin-tab-label" x-text="tab.label"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <button
+                      class="space-topbar-button space-topbar-button--icon admin-close-button"
+                      type="button"
+                      tabindex="-1"
+                    >
+                      <x-icon>exit_to_app</x-icon>
+                    </button>
+                  </div>
+                  <div class="space-topbar admin-topbar admin-topbar--measure is-compact" x-ref="topbarCompactMeasure">
+                    <div class="admin-tab-list" role="presentation">
+                      <template x-for="tab in $store.adminPage.tabs" :key="`compact-measure-${tab.id}`">
+                        <button
+                          class="space-topbar-button admin-tab-button"
+                          :class="{ 'is-active': $store.adminPage.isTabActive(tab.id) }"
+                          type="button"
+                          tabindex="-1"
+                        >
+                          <template x-if="tab.avatarPath">
+                            <img class="admin-tab-avatar" :src="tab.avatarPath" alt="" />
+                          </template>
+                          <template x-if="!tab.avatarPath">
+                            <x-icon x-text="tab.icon"></x-icon>
+                          </template>
+                          <span class="admin-tab-label" x-text="tab.label"></span>
+                        </button>
+                      </template>
+                    </div>
+                    <button
+                      class="space-topbar-button space-topbar-button--icon admin-close-button"
+                      type="button"
+                      tabindex="-1"
+                    >
+                      <x-icon>exit_to_app</x-icon>
+                    </button>
+                  </div>
+                </div>
 
                 <div id="_core/onscreen_menu/bar_start" class="admin-injected-controls" aria-label="Active admin panel controls"></div>
 

@@ -2,6 +2,16 @@ import {
   BROWSER_FRAME_BRIDGE_CHANNEL,
   createWindowMessageBridge
 } from "./browser-frame-protocol.js";
+import {
+  getBrowserWebviewBridge
+} from "./browser-webview-bridge.js";
+import {
+  isWebviewLike
+} from "./browser-webview.js";
+import {
+  getDesktopBrowserBridge,
+  hasDesktopBrowserBridge
+} from "./browser-native-bridge.js";
 
 const DEFAULT_SEND_TIMEOUT_MS = 5000;
 const bridgeCache = new WeakMap();
@@ -34,7 +44,7 @@ function resolveFrameTarget(target) {
 function resolveIframeById(iframeId, root = globalThis.document) {
   const normalizedId = String(iframeId || "").trim();
   if (!normalizedId) {
-    throw new Error("Browser frame helper requires a non-empty iframe id.");
+    throw new Error("Browser frame helper requires a non-empty browser id.");
   }
 
   const iframe = root?.getElementById?.(normalizedId);
@@ -59,14 +69,32 @@ export function createBrowserFrameBridge(target, options = {}) {
 }
 
 export function getBrowserFrameBridge(iframeId, options = {}) {
-  const iframe = resolveIframeById(iframeId, options.root);
-  if (bridgeCache.has(iframe)) {
-    return bridgeCache.get(iframe);
+  const normalizedId = String(iframeId || "").trim();
+  if (!normalizedId) {
+    throw new Error("Browser frame helper requires a non-empty browser id.");
   }
 
-  const bridge = createBrowserFrameBridge(iframe, options);
-  bridgeCache.set(iframe, bridge);
-  return bridge;
+  const iframe = options.root?.getElementById?.(normalizedId) || globalThis.document?.getElementById?.(normalizedId);
+  if (isWebviewLike(iframe)) {
+    return getBrowserWebviewBridge(iframe, options);
+  }
+
+  if (isIframeLike(iframe)) {
+    if (bridgeCache.has(iframe)) {
+      return bridgeCache.get(iframe);
+    }
+
+    const bridge = createBrowserFrameBridge(iframe, options);
+    bridgeCache.set(iframe, bridge);
+    return bridge;
+  }
+
+  if (hasDesktopBrowserBridge()) {
+    return getDesktopBrowserBridge(normalizedId, options);
+  }
+
+  resolveIframeById(normalizedId, options.root);
+  throw new Error(`Browser frame helper could not resolve a browser target for "${normalizedId}".`);
 }
 
 export async function send(iframeId, type, payload = null, options = {}) {

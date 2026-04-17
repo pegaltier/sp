@@ -121,7 +121,7 @@ export async function changeUserPassword(currentPassword, newPassword) {
   const userCryptoRecord = await runtime.utils.userCrypto.buildPasswordRewrap(newPassword);
 
   try {
-    return await runtime.api.call(PASSWORD_CHANGE_ENDPOINT, {
+    const result = await runtime.api.call(PASSWORD_CHANGE_ENDPOINT, {
       body: {
         currentPassword,
         newPassword,
@@ -129,6 +129,8 @@ export async function changeUserPassword(currentPassword, newPassword) {
       },
       method: "POST"
     });
+    runtime.utils.userCrypto.clearSession?.();
+    return result;
   } catch (error) {
     throw new Error(`Unable to change password: ${error.message}`);
   }

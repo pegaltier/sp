@@ -444,7 +444,13 @@
                 <p x-text="$store.timeTravel.diffErrorText"></p>
               </div>
             </template>
-            <template x-if="!$store.timeTravel.diffLoading && !$store.timeTravel.diffErrorText">
+            <template x-if="!$store.timeTravel.diffLoading && !$store.timeTravel.diffErrorText && $store.timeTravel.diffNoticeText">
+              <div class="time-travel-empty">
+                <x-icon>notes</x-icon>
+                <p x-text="$store.timeTravel.diffNoticeText"></p>
+              </div>
+            </template>
+            <template x-if="!$store.timeTravel.diffLoading && !$store.timeTravel.diffErrorText && !$store.timeTravel.diffNoticeText">
               <div class="time-travel-diff-output" aria-label="File diff">
                 <template x-for="line in $store.timeTravel.diffLines" :key="line.id">
                   <span

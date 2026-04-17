@@ -8,80 +8,164 @@
       x-data
       class="web-browsing-overlay"
       x-cloak
-      x-init="$store.webBrowsing.mount({ panel: $refs.panel })"
+      x-init="$store.webBrowsing.mount()"
       x-destroy="$store.webBrowsing.unmount()"
-      x-show="$store.webBrowsing.isOpen"
+      x-show="$store.webBrowsing.hasOpenWindows"
       @pointermove.window="$store.webBrowsing.handlePointerMove($event)"
       @pointerup.window="$store.webBrowsing.stopPointer($event)"
       @pointercancel.window="$store.webBrowsing.stopPointer($event)"
       @resize.window="$store.webBrowsing.handleViewportResize()"
     >
-      <section
-        x-ref="panel"
-        class="web-browsing-window"
-        :class="{
-          'is-dragging': $store.webBrowsing.interaction?.type === 'drag',
-          'is-minimized': $store.webBrowsing.isMinimized,
-          'is-resizing': $store.webBrowsing.interaction?.type === 'resize'
-        }"
-        :style="$store.webBrowsing.panelStyle"
-        @pointerdown="$store.webBrowsing.focusWindow()"
-      >
-        <header
-          class="web-browsing-window-titlebar"
-          aria-label="Browser window controls"
-          @pointerdown="$store.webBrowsing.startDrag($event)"
+      <template x-for="browserWindow in $store.webBrowsing.windows" :key="browserWindow.id">
+        <section
+          class="web-browsing-window"
+          :class="{
+            'is-dragging': $store.webBrowsing.interaction?.type === 'drag' && $store.webBrowsing.interaction?.windowId === browserWindow.id,
+            'is-minimized': browserWindow.isMinimized,
+            'is-resizing': $store.webBrowsing.interaction?.type === 'resize' && $store.webBrowsing.interaction?.windowId === browserWindow.id
+          }"
+          :style="$store.webBrowsing.panelStyle(browserWindow.id)"
+          @pointerdown="$store.webBrowsing.handleWindowPointerDown(browserWindow.id, $event)"
         >
-          <span class="web-browsing-window-dot" aria-hidden="true"></span>
-
-          <div class="web-browsing-window-title">
-            <strong>Browser</strong>
-          </div>
-
-          <div class="web-browsing-window-controls">
+          <header
+            class="web-browsing-window-titlebar"
+            :aria-label="`Browser window controls for ${browserWindow.id}`"
+            @pointerdown="$store.webBrowsing.startDrag(browserWindow.id, $event)"
+          >
             <button
               type="button"
-              class="web-browsing-window-control"
-              :aria-label="$store.webBrowsing.isMinimized ? 'Restore browser window' : 'Minimize browser window'"
-              :title="$store.webBrowsing.isMinimized ? 'Restore' : 'Minimize'"
+              class="web-browsing-window-control web-browsing-window-control-create"
+              aria-label="Open another browser window"
+              title="New window"
               @pointerdown.stop
-              @click.stop="$store.webBrowsing.toggleMinimized()"
+              @click.stop="$store.webBrowsing.createWindow()"
             >
-              <span x-text="$store.webBrowsing.isMinimized ? '+' : '-'"></span>
+              <x-icon>add</x-icon>
             </button>
 
-            <button
-              type="button"
-              class="web-browsing-window-control web-browsing-window-control-close"
-              aria-label="Close browser window"
-              title="Close"
-              @pointerdown.stop
-              @click.stop="$store.webBrowsing.closeWindow()"
+            <div class="web-browsing-window-title">
+              <strong x-text="browserWindow.id"></strong>
+            </div>
+
+            <div class="web-browsing-window-controls">
+              <button
+                type="button"
+                class="web-browsing-window-control"
+                :aria-label="browserWindow.isMinimized ? `Restore ${browserWindow.id}` : `Minimize ${browserWindow.id}`"
+                :title="browserWindow.isMinimized ? 'Restore' : 'Minimize'"
+                @pointerdown.stop
+                @click.stop="$store.webBrowsing.toggleMinimized(browserWindow.id)"
+              >
+                <x-icon x-text="browserWindow.isMinimized ? 'open_in_full' : 'remove'"></x-icon>
+              </button>
+
+              <button
+                type="button"
+                class="web-browsing-window-control web-browsing-window-control-close"
+                :aria-label="`Close ${browserWindow.id}`"
+                title="Close"
+                @pointerdown.stop
+                @click.stop="$store.webBrowsing.closeWindow(browserWindow.id)"
+              >
+                <x-icon>close</x-icon>
+              </button>
+            </div>
+          </header>
+
+          <div class="web-browsing-window-body">
+            <form
+              class="web-browsing-window-toolbar"
+              :aria-label="`Browser bar for ${browserWindow.id}`"
+              @submit.prevent="$store.webBrowsing.navigateToAddress(browserWindow.id)"
             >
-              <span>&times;</span>
-            </button>
+              <div class="web-browsing-window-toolbar-actions">
+                <button
+                  type="button"
+                  class="web-browsing-window-nav-button"
+                  aria-label="Go back"
+                  title="Back"
+                  :disabled="browserWindow.bridgeStateReady && !browserWindow.canGoBack"
+                  @click.stop="$store.webBrowsing.goBack(browserWindow.id)"
+                >
+                  <x-icon>arrow_back</x-icon>
+                </button>
+
+                <button
+                  type="button"
+                  class="web-browsing-window-nav-button"
+                  aria-label="Go forward"
+                  title="Forward"
+                  :disabled="browserWindow.bridgeStateReady && !browserWindow.canGoForward"
+                  @click.stop="$store.webBrowsing.goForward(browserWindow.id)"
+                >
+                  <x-icon>arrow_forward</x-icon>
+                </button>
+
+                <button
+                  type="button"
+                  class="web-browsing-window-nav-button"
+                  aria-label="Reload page"
+                  title="Reload"
+                  @click.stop="$store.webBrowsing.reloadFrame(browserWindow.id)"
+                >
+                  <x-icon>refresh</x-icon>
+                </button>
+              </div>
+
+              <input
+                type="text"
+                class="web-browsing-window-address-field"
+                aria-label="Browser address"
+                autocapitalize="off"
+                autocomplete="off"
+                autocorrect="off"
+                spellcheck="false"
+                :value="browserWindow.addressValue"
+                @input="$store.webBrowsing.updateAddressValue(browserWindow.id, $event.target.value)"
+              />
+            </form>
+
+            <x-browser
+              class="web-browsing-window-frame-shell"
+              :data-browser-id="browserWindow.id"
+              x-init="$store.webBrowsing.registerBrowserSurface(browserWindow.id, $el)"
+              x-destroy="$store.webBrowsing.unregisterBrowserSurface(browserWindow.id, $el)"
+            >
+              <template x-if="$store.webBrowsing.usesDesktopWebviewSurface">
+                <webview
+                  :id="browserWindow.id"
+                  :partition="$store.webBrowsing.webviewPartition(browserWindow.id)"
+                  class="web-browsing-window-frame web-browsing-window-webview"
+                  x-init="$store.webBrowsing.registerWebview(browserWindow.id, $el, browserWindow.frameSrc)"
+                  x-destroy="$store.webBrowsing.unregisterWebview(browserWindow.id, $el)"
+                ></webview>
+              </template>
+
+              <template x-if="!$store.webBrowsing.usesDesktopWebviewSurface && !$store.webBrowsing.usesNativeDesktopSurface">
+                <iframe
+                  :id="browserWindow.id"
+                  :name="browserWindow.id"
+                  class="web-browsing-window-frame"
+                  :title="`Browser frame ${browserWindow.id}`"
+                  :src="browserWindow.frameSrc"
+                  data-space-inject="/mod/_core/web_browsing/browser-frame-inject.js"
+                  x-init="$store.webBrowsing.registerIframe(browserWindow.id, $el)"
+                  x-destroy="$store.webBrowsing.unregisterIframe(browserWindow.id, $el)"
+                  @load="$store.webBrowsing.handleFrameLoad(browserWindow.id, $event)"
+                ></iframe>
+              </template>
+            </x-browser>
           </div>
-        </header>
 
-        <div class="web-browsing-window-body">
-          <iframe
-            id="browser-1"
-            name="browser-1"
-            class="web-browsing-window-frame"
-            title="Browser frame"
-            src="/mod/_core/web_browsing/browser-frame.html"
-            data-space-inject="/mod/_core/web_browsing/browser-frame-inject.js"
-          ></iframe>
-        </div>
-
-        <button
-          type="button"
-          class="web-browsing-resize-handle"
-          aria-label="Resize browser window"
-          title="Resize"
-          @pointerdown.stop="$store.webBrowsing.startResize($event)"
-        ></button>
-      </section>
+          <button
+            type="button"
+            class="web-browsing-resize-handle"
+            aria-label="Resize browser window"
+            title="Resize"
+            @pointerdown.stop="$store.webBrowsing.startResize(browserWindow.id, $event)"
+          ></button>
+        </section>
+      </template>
     </div>
   </body>
 </html>
