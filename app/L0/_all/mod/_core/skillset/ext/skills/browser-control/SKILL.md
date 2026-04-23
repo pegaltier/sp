@@ -1,6 +1,6 @@
 ---
 name: Browser Control
-description: Inspect, navigate, and interact with open browser windows through space.browser
+description: Inspect, navigate, and interact with open browser surfaces through space.browser
 metadata:
   placement: system
   when:
@@ -12,7 +12,7 @@ metadata:
       - browser:open
 ---
 
-Use this skill once at least one browser window is open. `browser-manager` handles window open or close work
+Use this skill once at least one browser surface is open. `browser-manager` handles stand-alone window open or close work.
 
 transient
 - `currently open web browsers` lists `browser id|url|title`
@@ -24,6 +24,7 @@ workflow
 - open, navigate, history, reload, `state(...)`, `content(...)`, `detail(...)`, and `dom(...)` settle internally and return fresh read results without a separate sync step, and `evaluate(...)` still resolves a ready guest without requiring a separate sync step first
 - ref-targeted action helpers such as `click`, `type`, `submit`, `typeSubmit`, and `scroll` return `{ action, state }`; inspect `result.action.status` before retrying
 - `open(...)` and typed `navigate(...)` treat bare hosts like `novinky.cz` or `localhost:3000` as browser-address input instead of app-relative paths
+- widget or page-authored `<x-browser src="google.com"></x-browser>` surfaces appear in the same browser list as stand-alone windows
 - inspection helpers such as `content(...)`, `detail(...)`, `dom(...)`, and `state(...)` also settle internally and mark that browser as the current prompt-time page-content source
 - prefer the fresh `last interacted web browser` transient block after open, navigate, history, reload, and ref-targeted actions before asking for another explicit `content(...)` capture
 - use `content(...)` to get readable page content with stable typed refs for the latest capture; unlike `dom(...)`, it should stay cleaned up for agent use and should not include raw helper wrapper markup from nested frames or shadow roots

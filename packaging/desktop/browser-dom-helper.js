@@ -25,6 +25,22 @@ function installBrowserDomHelper(flagKey = DOM_HELPER_FLAG, helperKey = DOM_HELP
     "tab",
     "textbox"
   ]);
+  const STRUCTURAL_ROLES = new Set([
+    "alertdialog",
+    "article",
+    "banner",
+    "complementary",
+    "contentinfo",
+    "dialog",
+    "document",
+    "form",
+    "group",
+    "main",
+    "navigation",
+    "none",
+    "presentation",
+    "region"
+  ]);
   const INTERACTIVE_EVENT_NAMES = new Set([
     "auxclick",
     "change",
@@ -319,7 +335,19 @@ function installBrowserDomHelper(flagKey = DOM_HELPER_FLAG, helperKey = DOM_HELP
     }
 
     const role = String(element.getAttribute?.("role") || "").trim().toLowerCase();
-    return INTERACTIVE_ROLES.has(role) || hasInteractiveEventHandler(element);
+    if (INTERACTIVE_ROLES.has(role)) {
+      return true;
+    }
+
+    if (STRUCTURAL_ROLES.has(role)) {
+      return false;
+    }
+
+    if (hasInteractiveEventHandlerAttribute(element)) {
+      return true;
+    }
+
+    return hasInteractiveEventHandlerProperty(element) && Boolean(normalizeText(element.textContent || ""));
   }
 
   function parseCssColor(value) {

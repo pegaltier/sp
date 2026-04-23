@@ -67,6 +67,22 @@
     "tab",
     "textbox"
   ]);
+  const STRUCTURAL_ROLES = new Set([
+    "alertdialog",
+    "article",
+    "banner",
+    "complementary",
+    "contentinfo",
+    "dialog",
+    "document",
+    "form",
+    "group",
+    "main",
+    "navigation",
+    "none",
+    "presentation",
+    "region"
+  ]);
   const INTERACTIVE_EVENT_NAMES = new Set([
     "auxclick",
     "change",
@@ -682,10 +698,6 @@
       return false;
     }
 
-    if (hasHelperManagedNodeReference(element)) {
-      return true;
-    }
-
     const tagName = getTagName(element);
     if (tagName === "A" && element.hasAttribute?.("href")) {
       return true;
@@ -700,7 +712,20 @@
     }
 
     const role = String(element.getAttribute?.("role") || "").trim().toLowerCase();
-    return INTERACTIVE_ROLES.has(role) || hasInteractiveEventHandler(element);
+    if (INTERACTIVE_ROLES.has(role)) {
+      return true;
+    }
+
+    if (STRUCTURAL_ROLES.has(role)) {
+      return false;
+    }
+
+    if (hasInteractiveEventHandlerAttribute(element)) {
+      return true;
+    }
+
+    return (hasHelperManagedNodeReference(element) || hasInteractiveEventHandlerProperty(element))
+      && Boolean(normalizeText(element.textContent || ""));
   }
 
   function getComputedStyleSafe(element) {

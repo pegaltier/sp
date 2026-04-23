@@ -123,6 +123,24 @@ Current optimization guidance:
 - if startup or restart is slow with many users, confirm `watchdog.js` is still using the one-pass full-reshard path rather than rebuilding each shard by rescanning the whole index
 - if writes are still primary-bound after that, the remaining costs are usually directory subtree resync inside `watchdog.js` and full shard object clone or compare work in `state_system.js`, not `fs.watch`
 
+## Clustered Read Pressure
+
+The repeatable clustered-read benchmark lives at `tests/server_cluster_read_stress_test.mjs`.
+
+Use it when module resolution, extension discovery, or indexed pattern listing is suspected of slowing down under many `L2/<user>/` roots. The harness can:
+
+- seed a temporary customware tree with the implicit single-user `L2/user/` root plus many additional synthetic `L2` users
+- drive concurrent `/mod/...` fetches that exercise inherited module resolution and file streaming
+- drive concurrent `/api/file_paths` requests with module-style glob patterns such as panel YAML, skill `SKILL.md`, JS, and CSS discovery
+- run `--workers 1` as a single-process baseline or larger clustered worker counts for comparison
+- compare forced connection churn with `--connection close` against HTTP keep-alive reuse with `--connection keep-alive`
+- report throughput, latency percentiles, indexed path counts, returned match counts, worker distribution, startup timing, and per-process CPU deltas
+
+The two modes measure different costs:
+
+- `--mode mod` reads the relevant replicated `file_index` shards for the active user and groups, resolves the inherited module file, and streams it
+- `--mode file-paths` lists indexed app paths by glob pattern, so it is the better probe for discovery calls that must filter large indexes by pattern and access rules
+
 ## User Folder Quotas
 
 `USER_FOLDER_SIZE_LIMIT_BYTES` optionally caps each on-disk `L2/<user>/` folder.
